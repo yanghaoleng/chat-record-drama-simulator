@@ -183,3 +183,5 @@
 - 已从 `server/settings.ts` 与 `vite.config.ts` 移除真实 token，改为通过 `.env` 或 CI 环境变量注入。
 - 已更新 `.env.example`，新增 `COMPANY_DEEPSEEK_API_KEY`、`VITE_COMPANY_DEEPSEEK_API_KEY` 等配置占位。
 - 已加强 `.gitignore`，排除 `.env`、临时目录、渲染视频、录屏、同步冲突文件和系统文件，避免公开仓库误提交敏感或大体积文件。
+- GitHub 不保留中文仓库 slug，首次创建被规范成 `-`；已重命名为公开仓库 `yanghaoleng/chat-record-drama-simulator`，README 中文项目名仍为“聊天记录短剧模拟器”。
+- 已推送 `main` 到 `https://github.com/yanghaoleng/chat-record-drama-simulator`。
