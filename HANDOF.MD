@@ -187,3 +187,4 @@
 - 已推送 `main` 到 `https://github.com/yanghaoleng/chat-record-drama-simulator`。
 - 标题菜单已新增 `Github` 公开仓库入口，默认指向 `https://github.com/yanghaoleng/chat-record-drama-simulator`，也可通过 `VITE_GITHUB_REPO_URL` 覆盖。
 - 桌面端“编故事”面板已改为固定像素垂直偏移 `--desktop-story-panel-top-offset: 190px`，不再依赖百分比/视口高度居中；移动端底部半弹窗结构不变。
+- 桌面端视频版右侧预览面板已使用 `--desktop-preview-window-top-offset`，在 `--desktop-story-panel-top-offset: 190px` 上补 `12px` 视觉内边距，视频窗口顶部和可见“编故事”卡片保持同高。

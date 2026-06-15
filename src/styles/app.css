@@ -470,6 +470,7 @@ button[disabled],
   --video-preview-width: 585px;
   --preview-tilt-gutter: 18px;
   --desktop-story-panel-top-offset: 190px;
+  --desktop-preview-window-top-offset: calc(var(--desktop-story-panel-top-offset) + 12px);
   display: grid;
   grid-template-columns: minmax(280px, 340px) minmax(380px, 520px) minmax(560px, 1fr);
   gap: 14px;
@@ -2058,12 +2059,13 @@ button[disabled],
 
   .static-workspace .right-panel:has(.video-preview-stack),
   .app-shell-jojo .static-workspace .right-panel:has(.video-preview-stack) {
-    align-self: center;
+    align-self: start;
     width: min(var(--video-preview-width), calc(100vw - 32px));
     padding-top: 0;
+    margin-top: var(--desktop-preview-window-top-offset);
     mask-image: none !important;
     -webkit-mask-image: none !important;
-    transform: translateY(10px);
+    transform: none;
   }
 
   .wechat-preview-shell,

@@ -16,6 +16,7 @@
 | token 服务 Toast | 全局状态反馈 | `toastMessage`、`showToast(tokenServiceWifiToast)` | `.app-toast` |
 | 左侧面板 | 主工作区 | `ScrollShadow` | `.left-panel.panel-scroll` |
 | 桌面编故事垂直位置 | 主工作区 | CSS 变量 | `--desktop-story-panel-top-offset: 190px` |
+| 桌面视频窗口垂直位置 | 视频预览 | CSS 变量 | `.right-panel:has(.video-preview-stack)` 使用 `--desktop-preview-window-top-offset` |
 | 编故事底部弹窗按钮 | 1080px 以下适配 | `storyPanelOpen`、`setStoryPanelOpenWithContinuity`、`ChevronDown`、`PenLine` | `.story-panel-status`、`.story-panel-open`、`story-panel-toggle` |
 | 编故事输入框 | 编故事 | `draftPrompt` | `.hero-textarea.prompt-textarea` |
 | 开始编按钮 | 编故事 | `continueStory` | HeroUI `Button` |
