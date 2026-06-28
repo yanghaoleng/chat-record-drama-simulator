@@ -2170,6 +2170,8 @@ button[disabled],
     max-height: 100%;
     overflow-y: auto;
     padding: var(--desktop-story-panel-top-offset) 10px 24px;
+    mask-image: none !important;
+    -webkit-mask-image: none !important;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
     transform: none;
