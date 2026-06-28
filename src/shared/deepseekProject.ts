@@ -1,6 +1,6 @@
-import { sampleProject } from "./sampleProject";
-import { isGenericImageCopy } from "./imageNarrative";
-import { localMemeAssets, normalizeMemeMessage } from "./memeLibrary";
+import { sampleProject } from "./sampleProject.js";
+import { isGenericImageCopy } from "./imageNarrative.js";
+import { localMemeAssets, normalizeMemeMessage } from "./memeLibrary.js";
 import {
   messageTypes,
   parseProject,
@@ -8,7 +8,7 @@ import {
   type ChatMessage,
   type DramaProject,
   type ScriptGenerateRequest
-} from "./schema";
+} from "./schema.js";
 
 const maxGeneratedMessages = 72;
 

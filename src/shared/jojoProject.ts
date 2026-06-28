@@ -1,6 +1,6 @@
-import type { ChatMessage, DramaProject, MemeAsset } from "./schema";
-import { localMemeAssets } from "./memeLibrary";
-import { jojoPhotoAssets } from "./photoLibrary";
+import type { ChatMessage, DramaProject, MemeAsset } from "./schema.js";
+import { localMemeAssets } from "./memeLibrary.js";
+import { jojoPhotoAssets } from "./photoLibrary.js";
 
 export const jojoCompanyAssets: MemeAsset[] = [
   {

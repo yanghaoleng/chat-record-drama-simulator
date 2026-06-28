@@ -128,19 +128,15 @@ async function preloadRenderImages(project: DramaProject) {
 function drawAvatar(ctx: CanvasRenderingContext2D, project: DramaProject, message: ChatMessage, x: number, y: number, imageCache: ImageCache) {
   const character = getCharacter(project, message);
   const avatarImage = imageCache.avatars.get(character.id);
+  const background = isJojoProject(project) ? "#eef3f9" : "#ebebeb";
   const radius = isJojoProject(project) ? 18 : 12;
   ctx.save();
   roundRect(ctx, x, y, 112, 112, radius);
   ctx.clip();
-  const fallbackColors: [string, string] = message.side === "left" ? ["#f9a8d4", "#64748b"] : ["#0f172a", "#7c2d12"];
-  const [startColor, endColor] = parseGradientColors(character.avatarGradient, fallbackColors);
-  const gradient = ctx.createLinearGradient(x, y, x + 112, y + 112);
-  gradient.addColorStop(0, startColor);
-  gradient.addColorStop(1, endColor);
-  ctx.fillStyle = gradient;
-  ctx.fillRect(x, y, 112, 112);
   let drewAvatarImage = false;
   if (avatarImage) {
+    ctx.fillStyle = background;
+    ctx.fillRect(x, y, 112, 112);
     try {
       drawImageCover(ctx, avatarImage, x, y, 112, 112);
       drewAvatarImage = true;
@@ -149,6 +145,13 @@ function drawAvatar(ctx: CanvasRenderingContext2D, project: DramaProject, messag
     }
   }
   if (!drewAvatarImage) {
+    const fallbackColors: [string, string] = message.side === "left" ? ["#f9a8d4", "#64748b"] : ["#0f172a", "#7c2d12"];
+    const [startColor, endColor] = parseGradientColors(character.avatarGradient, fallbackColors);
+    const gradient = ctx.createLinearGradient(x, y, x + 112, y + 112);
+    gradient.addColorStop(0, startColor);
+    gradient.addColorStop(1, endColor);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x, y, 112, 112);
     ctx.fillStyle = "#ffffff";
     ctx.font = "700 48px PingFang SC, Microsoft YaHei, sans-serif";
     ctx.textAlign = "center";

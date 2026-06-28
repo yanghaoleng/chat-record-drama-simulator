@@ -1,6 +1,6 @@
-import { normalizeDeepSeekProject, extractJson } from "./deepseekProject";
-import { isGenericImageCopy } from "./imageNarrative";
-import { isJojoProject } from "./jojoProject";
+import { normalizeDeepSeekProject, extractJson } from "./deepseekProject.js";
+import { isGenericImageCopy } from "./imageNarrative.js";
+import { isJojoProject } from "./jojoProject.js";
 import {
   describePhotoAssetCatalog,
   findJojoPhotoChoice,
@@ -8,9 +8,9 @@ import {
   pickJojoPhotoAssetId,
   pickViralPhotoAssetId,
   viralPhotoCatalog
-} from "./photoLibrary";
-import { parseProject, type ChatMessage, type DramaProject, type ScriptGenerateRequest } from "./schema";
-import type { PromptCard } from "./linearStory";
+} from "./photoLibrary.js";
+import { parseProject, type ChatMessage, type DramaProject, type ScriptGenerateRequest } from "./schema.js";
+import type { PromptCard } from "./linearStory.js";
 
 declare const __DEEPSEEK_BROWSER_CONFIG__: {
   apiKey?: string;

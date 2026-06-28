@@ -1,6 +1,6 @@
 {
-  "buildCommand": "npm run build:jojo",
-  "outputDirectory": "dist/jojo",
+  "buildCommand": "npm run build:ququ",
+  "outputDirectory": "dist/ququ",
   "rewrites": [
     {
       "source": "/api/story/continue",
@@ -13,6 +13,14 @@
     {
       "source": "/api/(.*)",
       "destination": "/api/health"
+    },
+    {
+      "source": "/ding",
+      "destination": "/ding/index.html"
+    },
+    {
+      "source": "/ding/(.*)",
+      "destination": "/ding/index.html"
     },
     {
       "source": "/(.*)",

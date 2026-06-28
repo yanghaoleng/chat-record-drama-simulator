@@ -1,6 +1,6 @@
-import type { ChatMessage, DramaProject } from "./schema";
-import { isJojoCssMemeAssetId } from "./jojoMemeCards";
-import { localMemeAssets } from "./memeLibrary";
+import type { ChatMessage, DramaProject } from "./schema.js";
+import { isJojoCssMemeAssetId } from "./jojoMemeCards.js";
+import { localMemeAssets } from "./memeLibrary.js";
 
 const genericImagePattern = /^(关键|重要)?\s*(证据|照片|图片|截图|图|旧照|旧照片|聊天图片|照片线索|图片线索|关键线索|证据照片)\s*[。.!！?？]*$/;
 const lowInfoImagePattern = /^(你自己看|你看|看图|发你了|自己看|图在这里|这张|这张照片|这张图)\s*[。.!！?？]*$/;

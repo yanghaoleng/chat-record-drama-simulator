@@ -1,4 +1,4 @@
-import type { ChatMessage } from "./schema";
+import type { ChatMessage } from "./schema.js";
 
 export type JojoCssMemeTone = "jiaojiao" | "lingdang" | "zhuxiaodi" | "xitong" | "meeting";
 

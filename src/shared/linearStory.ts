@@ -1,10 +1,10 @@
-import { sampleProject } from "./sampleProject";
-import { defaultAvatars } from "./avatarLibrary";
-import { imageHintFromContext } from "./imageNarrative";
-import { normalizeMemeMessage } from "./memeLibrary";
-import { isJojoProject, jojoCompanyAssets, jojoProject } from "./jojoProject";
-import { pickJojoPhotoAssetId, pickViralPhotoAssetId } from "./photoLibrary";
-import { parseProject, type ChatMessage, type DramaProject } from "./schema";
+import { sampleProject } from "./sampleProject.js";
+import { defaultAvatars } from "./avatarLibrary.js";
+import { imageHintFromContext } from "./imageNarrative.js";
+import { normalizeMemeMessage } from "./memeLibrary.js";
+import { isJojoProject, jojoCompanyAssets, jojoProject } from "./jojoProject.js";
+import { pickJojoPhotoAssetId, pickViralPhotoAssetId } from "./photoLibrary.js";
+import { parseProject, type ChatMessage, type DramaProject } from "./schema.js";
 
 export type PromptCard = {
   id: string;

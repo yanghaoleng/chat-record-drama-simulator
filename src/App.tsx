@@ -517,6 +517,15 @@ function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1200);
 }
 
+function archiveTimestamp(date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getFullYear() % 100)}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`;
+}
+
+function archiveFilename(date = new Date()) {
+  return `存档-fakechat-${archiveTimestamp(date)}.json`;
+}
+
 type LayoutSnapshot = Map<string, { left: number; top: number }>;
 
 function getLeftPanelLayoutKey(element: HTMLElement) {
@@ -716,6 +725,7 @@ export default function App({ storyPackage }: AppProps) {
   const [editingPendingPromptCardId, setEditingPendingPromptCardId] = useState<string | null>(null);
   const [openPromptCardMenuId, setOpenPromptCardMenuId] = useState<string | null>(null);
   const [scrollTargetMessageId, setScrollTargetMessageId] = useState<string | null>(null);
+  const [leftPanelScrolling, setLeftPanelScrolling] = useState(false);
   const scrollTargetMessageIdRef = useRef<string | null>(null);
   const projectRef = useRef(project);
   const promptCardsRef = useRef(promptCards);
@@ -736,6 +746,7 @@ export default function App({ storyPackage }: AppProps) {
   const revealTimerRef = useRef<number | undefined>(undefined);
   const previewTransitionTimerRef = useRef<number | undefined>(undefined);
   const promptSuggestionTimerRef = useRef<number | undefined>(undefined);
+  const leftPanelScrollTimerRef = useRef<number | undefined>(undefined);
   const toastTimerRef = useRef<number | undefined>(undefined);
   const generationAbortRef = useRef<AbortController | null>(null);
   const generationProgressRef = useRef(0);
@@ -779,6 +790,15 @@ export default function App({ storyPackage }: AppProps) {
   function updateScrollTargetMessageId(nextMessageId: string | null) {
     scrollTargetMessageIdRef.current = nextMessageId;
     setScrollTargetMessageId(nextMessageId);
+  }
+
+  function handleLeftPanelScroll() {
+    setLeftPanelScrolling(true);
+    if (leftPanelScrollTimerRef.current) window.clearTimeout(leftPanelScrollTimerRef.current);
+    leftPanelScrollTimerRef.current = window.setTimeout(() => {
+      setLeftPanelScrolling(false);
+      leftPanelScrollTimerRef.current = undefined;
+    }, 720);
   }
 
   function updatePendingPromptCards(updater: (current: PendingPromptCard[]) => PendingPromptCard[]) {
@@ -842,6 +862,7 @@ export default function App({ storyPackage }: AppProps) {
     if (revealTimerRef.current) window.clearInterval(revealTimerRef.current);
     if (previewTransitionTimerRef.current) window.clearTimeout(previewTransitionTimerRef.current);
     if (promptSuggestionTimerRef.current) window.clearTimeout(promptSuggestionTimerRef.current);
+    if (leftPanelScrollTimerRef.current) window.clearTimeout(leftPanelScrollTimerRef.current);
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     if (generationProgressTimerRef.current) window.clearInterval(generationProgressTimerRef.current);
     if (storyLayoutUnlockTimerRef.current) window.clearTimeout(storyLayoutUnlockTimerRef.current);
@@ -1888,7 +1909,7 @@ export default function App({ storyPackage }: AppProps) {
 
   function exportJson() {
     const archive = makeStoryArchive(project, promptCards);
-    downloadBlob(new Blob([`${JSON.stringify(archive, null, 2)}\n`], { type: "application/json" }), `chat-line-${Date.now()}.json`);
+    downloadBlob(new Blob([`${JSON.stringify(archive, null, 2)}\n`], { type: "application/json" }), archiveFilename());
     setStatus("done");
     setStatusText("存档已导出");
   }
@@ -2355,7 +2376,10 @@ export default function App({ storyPackage }: AppProps) {
 
       <main className="workspace static-workspace">
         <div className={`left-panel ${storyPanelOpen ? "story-panel-open" : ""}`}>
-          <div className="left-panel-scroll panel-scroll">
+          <div
+            className={leftPanelScrolling ? "left-panel-scroll panel-scroll left-panel-scroll-scrolling" : "left-panel-scroll panel-scroll"}
+            onScroll={handleLeftPanelScroll}
+          >
             <button
               className="story-panel-status"
               style={jojoMode ? jojoStoryToggleGlassStyle : undefined}

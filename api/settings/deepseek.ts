@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { sendJson } from "../_http";
-import { getDeepSeekSettingsView } from "../../server/settings";
+import { sendJson } from "../_http.js";
+import { getDeepSeekSettingsView } from "../../server/settings.js";
 
 export default async function handler(request: IncomingMessage, response: ServerResponse) {
   if (request.method !== "GET") {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { sampleProject } from "../src/shared/sampleProject";
+import { sampleProject } from "../src/shared/sampleProject.js";
 import {
   messageTypes,
   chatMessageSchema,
@@ -11,9 +11,9 @@ import {
   type ChatMessage,
   type DramaProject,
   type ScriptGenerateRequest
-} from "../src/shared/schema";
-import { generateDeepSeekStorySegmentWithConfig, type DeepSeekSegmentResult } from "../src/shared/deepseekBrowser";
-import { getDeepSeekConfig } from "./settings";
+} from "../src/shared/schema.js";
+import { generateDeepSeekStorySegmentWithConfig, type DeepSeekSegmentResult } from "../src/shared/deepseekBrowser.js";
+import { getDeepSeekConfig } from "./settings.js";
 
 const storyBeats = [
   "陪聊下单",

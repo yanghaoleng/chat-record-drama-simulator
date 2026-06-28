@@ -1,7 +1,7 @@
-import type { DramaProject } from "./schema";
-import { avatarById } from "./avatarLibrary";
-import { localMemeAssets } from "./memeLibrary";
-import { viralPhotoAssets } from "./photoLibrary";
+import type { DramaProject } from "./schema.js";
+import { avatarById } from "./avatarLibrary.js";
+import { localMemeAssets } from "./memeLibrary.js";
+import { viralPhotoAssets } from "./photoLibrary.js";
 
 export const sampleProject: DramaProject = {
   id: "sample-blind-date-classmate",

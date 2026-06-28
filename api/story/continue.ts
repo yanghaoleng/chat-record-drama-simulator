@@ -1,6 +1,6 @@
 import type { ServerResponse } from "node:http";
-import { readJsonBody, sendJson, type JsonRequest } from "../_http";
-import { continueStoryWithDeepSeek } from "../../server/deepseek";
+import { readJsonBody, sendJson, type JsonRequest } from "../_http.js";
+import { continueStoryWithDeepSeek } from "../../server/deepseek.js";
 
 export default async function handler(request: JsonRequest, response: ServerResponse) {
   if (request.method !== "POST") {
