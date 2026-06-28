@@ -8,7 +8,6 @@ type LocalMeme = {
 };
 
 const qfaceLicense = "腾讯官方表情资源，仅供学习交流，请勿直接商用。";
-const qfaceSource = "https://github.com/koishijs/QFace";
 
 const localMemes: LocalMeme[] = [
   { id: "qface-0", title: "惊讶", file: "0.png", tags: ["惊讶", "震惊", "意外", "愣住", "反转"] },
@@ -59,7 +58,7 @@ export const localMemeAssets: MemeAsset[] = localMemes.map((meme) => ({
   kind: "meme",
   title: meme.title,
   sourceName: "QFace",
-  sourceUrl: qfaceSource,
+  sourceUrl: "",
   licenseNote: qfaceLicense,
   localPath: `/memes/qface/${meme.file}`,
   tags: meme.tags,
