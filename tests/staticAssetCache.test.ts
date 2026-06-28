@@ -9,7 +9,8 @@ describe("static visual asset cache manifest", () => {
     expect(staticVisualAssetPaths).toContain("/avatars/jojo/jiaojiao.webp");
     expect(staticVisualAssetPaths).toContain("/memes/qface/20.webp");
     expect(staticVisualAssetPaths).toContain("/viral-assets/photos/phone-chat-blur.webp");
-    expect(staticVisualAssetPaths).toContain("/jojo-assets/memes/jiaojiao-deadline.webp");
+    expect(staticVisualAssetPaths).toContain("/jojo-assets/photos/company-meeting-blur.webp");
+    expect(staticVisualAssetPaths).not.toContain("/jojo-assets/memes/jiaojiao-deadline.webp");
 
     for (const assetPath of staticVisualAssetPaths) {
       expect(assetPath.startsWith("/")).toBe(true);

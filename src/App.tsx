@@ -1,28 +1,31 @@
 import { Button } from "@heroui/react/button";
 import { Card, CardContent, CardHeader } from "@heroui/react/card";
-import { ScrollShadow } from "@heroui/react/scroll-shadow";
 import { Player, type PlayerRef } from "@remotion/player";
 import { Calligraph } from "calligraph";
 import gsap from "gsap";
 import {
   ArrowUpRight,
+  Check,
   ChevronDown,
+  Copy,
   Download,
   FileAudio,
   FileDown,
   FileUp,
   Film,
-  Hourglass,
+  Lightbulb,
   MessageSquarePlus,
+  MoreHorizontal,
   PenLine,
   Play,
   RefreshCcw,
   Save,
   Smartphone,
   Sparkles,
-  Video
+  Video,
+  X
 } from "lucide-react";
-import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { exportBrowserVideo, type VideoExportResult } from "./shared/browserVideo";
 import { generateBackendStorySegment } from "./shared/deepseekBackend";
@@ -31,7 +34,6 @@ import { synthesizeMessageClip, type TtsClipMap } from "./shared/edgeTts";
 import {
   createInitialStaticProject,
   createInitialPlaybackProject,
-  generateStorySegment,
   makeStoryArchive,
   parseStoryArchive,
   suggestNextStoryPrompt,
@@ -40,6 +42,7 @@ import {
 } from "./shared/linearStory";
 import { ChatDrama } from "./remotion/ChatDrama";
 import { imageNarrativeCopy, imageSourceForMessage } from "./shared/imageNarrative";
+import { jojoCssMemeCardForMessage, type JojoCssMemeCard } from "./shared/jojoMemeCards";
 import { isJojoProject } from "./shared/jojoProject";
 import { publicAsset, resolvePublicAssetPath } from "./shared/publicPath";
 import { getCharacter, isVoiceMessage, type ChatMessage, type DramaProject } from "./shared/schema";
@@ -56,6 +59,9 @@ type PreviewTransition = {
 type PendingPromptCard = {
   id: string;
   prompt: string;
+  status: "generating" | "queued" | "settling" | "removing";
+  completedCardId?: string;
+  completedCardNumber?: number;
 };
 type PromptRestoreUndo = {
   before: string;
@@ -66,11 +72,12 @@ type AppProps = {
   storyPackage: StoryPackage;
 };
 
-const deepSeekServiceToast = "DeepSeek 服务暂时连不上，已改用本地续写";
+const deepSeekServiceToast = "DeepSeek 服务暂时连不上，已停止生成";
 const defaultJojoAppUrl = "https://jojodemos.mikeywa.icu/ququ/";
 const defaultViralAppUrl = "https://ququ.mikeywa.icu/";
 const defaultGithubRepositoryUrl = "https://github.com/yanghaoleng/FakeChat";
 const generationProgressCap = 99;
+const generationProgressLoadingCap = 96;
 
 const jojoGlassCardStyle: CSSProperties = {
   backdropFilter: "blur(24px) saturate(118%)",
@@ -93,8 +100,29 @@ function initialPromptFor(packageId: StoryPackage) {
     : "张阿姨给男主介绍相亲对象，聊了半天才发现对方是他小时候暗恋过的小学同学，女生用旧绰号和毕业照把回忆翻出来。";
 }
 
-function compactStatusText(value: string) {
-  return value.length > 72 ? `${value.slice(0, 68)}...` : value;
+function normalizedPrompt(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function isInitialPresetPrompt(packageId: StoryPackage, prompt: string) {
+  return normalizedPrompt(prompt) === normalizedPrompt(initialPromptFor(packageId));
+}
+
+function createEmptyInitialProject(packageId: StoryPackage) {
+  return { ...createInitialStaticProject(packageId), messages: [] };
+}
+
+function createInitialPresetStorySegment(packageId: StoryPackage, prompt: string) {
+  const project = { ...createInitialPlaybackProject(packageId), brief: prompt };
+  const messages = project.messages;
+  const card: PromptCard = {
+    id: `prompt-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    prompt,
+    createdAt: new Date().toISOString(),
+    messageIds: messages.map((message) => message.id),
+    summary: `追加 ${messages.length} 条消息，承接 0 条历史对话`
+  };
+  return { card, messages, project };
 }
 
 function packageTitle(packageId: StoryPackage) {
@@ -128,10 +156,14 @@ function estimatedGenerationMs(project: DramaProject, packageId: StoryPackage) {
 
 function estimateGenerationProgress(startedAt: number, estimateMs: number) {
   const elapsed = Math.max(0, Date.now() - startedAt);
-  if (elapsed <= estimateMs) return Math.max(1, Math.floor((elapsed / estimateMs) * 90));
+  if (elapsed <= estimateMs) {
+    const progressRatio = Math.min(1, elapsed / estimateMs);
+    const easedProgress = 1 - Math.pow(1 - progressRatio, 2.7);
+    return Math.max(1, Math.floor(easedProgress * generationProgressLoadingCap));
+  }
   const tailElapsed = elapsed - estimateMs;
-  const tailProgress = 9 * (1 - Math.exp(-tailElapsed / 18000));
-  return Math.min(generationProgressCap, Math.floor(90 + tailProgress));
+  const tailProgress = 2 * (1 - Math.exp(-tailElapsed / 18000));
+  return Math.min(generationProgressCap - 1, Math.floor(generationProgressLoadingCap + tailProgress));
 }
 
 function renderPromptRiseText(text: string) {
@@ -152,26 +184,315 @@ function renderPromptRiseText(text: string) {
 function PendingPromptCardView({
   prompt,
   progress,
+  status,
+  queuePosition,
   onEdit,
+  onUpdate,
+  onRemove,
+  onJumpToBottom,
+  onSelect,
+  onStartEdit,
+  onCancelEdit,
+  isSelected,
+  isEditing,
+  cardId,
   style
 }: {
   prompt: string;
   progress: number;
+  status: PendingPromptCard["status"];
+  queuePosition: number;
   onEdit: () => void;
+  onUpdate?: (nextPrompt: string) => void;
+  onRemove?: () => void;
+  onJumpToBottom?: () => void;
+  onSelect?: () => void;
+  onStartEdit?: () => void;
+  onCancelEdit?: () => void;
+  isSelected?: boolean;
+  isEditing?: boolean;
+  cardId?: string;
   style?: CSSProperties;
 }) {
+  const isGenerating = status === "generating";
+  const isSettling = status === "settling";
+  const isRemoving = status === "removing";
+  const [draft, setDraft] = useState(prompt);
+  useEffect(() => {
+    if (!isEditing) setDraft(prompt);
+  }, [isEditing, prompt]);
+  const canJumpToBottom = isGenerating && Boolean(onJumpToBottom);
+  const canSelect = !isGenerating && !isSettling && !isRemoving && Boolean(onSelect);
+  const cardClassName = [
+    "prompt-card",
+    isGenerating
+      ? "prompt-card-pending prompt-card-generating"
+      : isSettling
+        ? "prompt-card-queued prompt-card-settling prompt-card-active"
+        : isRemoving
+          ? "prompt-card-queued prompt-card-removing"
+          : "prompt-card-queued prompt-card-selectable",
+    isSelected ? "prompt-card-active" : "",
+    isEditing ? "prompt-card-editing" : ""
+  ].filter(Boolean).join(" ");
+  const handleClick = () => {
+    if (canJumpToBottom) {
+      onJumpToBottom?.();
+      return;
+    }
+    if (canSelect) onSelect?.();
+  };
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (canJumpToBottom && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      onJumpToBottom?.();
+      return;
+    }
+    if (!canSelect) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onStartEdit?.();
+      return;
+    }
+    if (event.key === " ") {
+      event.preventDefault();
+      onSelect?.();
+    }
+  };
+  const commitEdit = () => {
+    const nextPrompt = draft.trim();
+    if (!nextPrompt) return;
+    onUpdate?.(nextPrompt);
+  };
+  const cancelEdit = () => {
+    setDraft(prompt);
+    onCancelEdit?.();
+  };
+  const handleEditKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelEdit();
+      return;
+    }
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    commitEdit();
+  };
   return (
-    <article className="prompt-card prompt-card-pending" style={style} aria-live="polite">
-      <div className="prompt-card-progress" aria-label={`生成进度 ${progress}%`}>
-        <Calligraph as="strong" variant="number" animation="snappy" className="prompt-card-progress-number">
-          {`${progress}%`}
-        </Calligraph>
+    <article
+      className={cardClassName}
+      style={style}
+      aria-live="polite"
+      aria-label={canJumpToBottom ? "滚动到当前对话底部" : canSelect ? `选中第 ${queuePosition} 张排队故事卡` : isSettling ? `第 ${queuePosition} 张故事卡已生成` : isRemoving ? `第 ${queuePosition} 张故事卡正在移除` : undefined}
+      aria-pressed={canSelect ? Boolean(isSelected) : undefined}
+      data-pending-prompt-card-id={cardId}
+      data-prompt-list-card-key={cardId ? `pending-${cardId}` : undefined}
+      role={canJumpToBottom || canSelect ? "button" : undefined}
+      tabIndex={canJumpToBottom || canSelect ? 0 : undefined}
+      onClick={handleClick}
+      onDoubleClick={() => {
+        if (canSelect) onStartEdit?.();
+      }}
+      onFocus={() => {
+        if (canSelect) onSelect?.();
+      }}
+      onKeyDown={handleKeyDown}
+    >
+      <div className="prompt-card-progress" aria-label={isGenerating ? `生成进度 ${progress}%` : `第 ${queuePosition} 张故事卡`}>
+        {isGenerating ? (
+          <div className="prompt-card-generating-progress">
+            <Calligraph as="strong" variant="number" animation="snappy" className="prompt-card-progress-number">
+              {`${progress}%`}
+            </Calligraph>
+          </div>
+        ) : (
+          <div className="prompt-card-index">{queuePosition}</div>
+        )}
       </div>
       <div className="prompt-card-pending-body">
-        <p>{prompt}</p>
-        <button className="prompt-card-edit-button" type="button" onClick={onEdit}>
-          重新编辑
+        {isEditing ? (
+          <textarea
+            className="prompt-card-edit-textarea"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={handleEditKeyDown}
+            onClick={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            rows={3}
+            autoFocus
+          />
+        ) : (
+          <p>{prompt}</p>
+        )}
+        {isGenerating ? (
+          <button
+            className="prompt-card-edit-button"
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onEdit();
+            }}
+          >
+            重新编辑
+          </button>
+        ) : isSettling ? (
+          <div className="prompt-card-queue-actions prompt-card-settling-actions">
+            <span className="prompt-card-queue-status">已生成</span>
+          </div>
+        ) : isRemoving ? (
+          <div className="prompt-card-queue-actions">
+            <span className="prompt-card-queue-status">移除中</span>
+          </div>
+        ) : isEditing ? (
+          <div className="prompt-card-queue-actions">
+            <span className="prompt-card-queue-status">编辑中</span>
+            <div className="prompt-card-queue-controls">
+              <button
+                className="prompt-card-icon-button prompt-card-confirm-button"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  commitEdit();
+                }}
+                aria-label="确认编辑"
+                disabled={!draft.trim()}
+              >
+                <Check size={14} />
+                <span>确认</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="prompt-card-queue-actions">
+            <span className="prompt-card-queue-status">排队中</span>
+            <div className="prompt-card-queue-controls">
+              {onUpdate ? (
+                <button
+                  className="prompt-card-icon-button"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onStartEdit?.();
+                  }}
+                  aria-label="编辑排队中的故事卡"
+                >
+                  <PenLine size={14} />
+                </button>
+              ) : null}
+              {onRemove ? (
+                <button
+                  className="prompt-card-icon-button prompt-card-remove-button"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRemove();
+                  }}
+                  aria-label="删除排队中的故事卡"
+                >
+                  <X size={14} />
+                </button>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function StoryPromptCardView({
+  card,
+  cardNumber,
+  isSelected,
+  isCompletingFromPending,
+  isMenuOpen,
+  layoutKey,
+  onFocusCard,
+  onToggleMenu,
+  onRestartFromHere,
+  onCopyPrompt,
+  style
+}: {
+  card: PromptCard;
+  cardNumber: number;
+  isSelected: boolean;
+  isCompletingFromPending?: boolean;
+  isMenuOpen: boolean;
+  layoutKey?: string;
+  onFocusCard: () => void;
+  onToggleMenu: () => void;
+  onRestartFromHere: () => void;
+  onCopyPrompt: () => void;
+  style?: CSSProperties;
+}) {
+  const cardClassName = [
+    "prompt-card",
+    "prompt-card-button",
+    isSelected ? "prompt-card-active" : "",
+    isCompletingFromPending ? "prompt-card-completed-settling" : "",
+    isMenuOpen ? "prompt-card-menu-open" : ""
+  ].filter(Boolean).join(" ");
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onFocusCard();
+  };
+  return (
+    <article
+      className={cardClassName}
+      style={style}
+      role="button"
+      tabIndex={0}
+      data-prompt-list-card-key={layoutKey ?? `prompt-${card.id}`}
+      data-prompt-card-id={card.id}
+      aria-pressed={isSelected}
+      aria-label={`定位到第 ${cardNumber} 张故事卡`}
+      onClick={onFocusCard}
+      onKeyDown={handleKeyDown}
+    >
+      <div className="prompt-card-index">{cardNumber}</div>
+      <p>{card.prompt}</p>
+      <div className="prompt-card-menu-root">
+        <button
+          className="prompt-card-menu-trigger"
+          type="button"
+          aria-label="打开故事卡菜单"
+          aria-haspopup="menu"
+          aria-expanded={isMenuOpen}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleMenu();
+          }}
+        >
+          <MoreHorizontal size={16} />
         </button>
+        {isMenuOpen ? (
+          <div className="prompt-card-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRestartFromHere();
+              }}
+            >
+              <RefreshCcw size={14} />
+              <span>从这里重新开始</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={(event) => {
+                event.stopPropagation();
+                onCopyPrompt();
+              }}
+            >
+              <Copy size={14} />
+              <span>复制</span>
+            </button>
+          </div>
+        ) : null}
       </div>
     </article>
   );
@@ -213,8 +534,25 @@ function readLeftPanelLayoutSnapshot(root: HTMLElement): LayoutSnapshot {
   getLeftPanelLayoutTargets(root).forEach((element) => {
     const key = getLeftPanelLayoutKey(element);
     if (!key) return;
-    const rect = element.getBoundingClientRect();
-    snapshot.set(key, { left: rect.left, top: rect.top });
+    snapshot.set(key, { left: element.offsetLeft, top: element.offsetTop });
+  });
+  return snapshot;
+}
+
+function getPromptCardLayoutKey(element: HTMLElement) {
+  return element.dataset.promptListCardKey || "";
+}
+
+function getPromptCardLayoutTargets(root: HTMLElement) {
+  return Array.from(root.querySelectorAll<HTMLElement>(".prompt-card-list > [data-prompt-list-card-key]"));
+}
+
+function readPromptCardLayoutSnapshot(root: HTMLElement): LayoutSnapshot {
+  const snapshot: LayoutSnapshot = new Map();
+  getPromptCardLayoutTargets(root).forEach((element) => {
+    const key = getPromptCardLayoutKey(element);
+    if (!key) return;
+    snapshot.set(key, { left: element.offsetLeft, top: element.offsetTop });
   });
   return snapshot;
 }
@@ -236,8 +574,19 @@ function WechatAvatar({ project, message }: { project: DramaProject; message: Ch
   );
 }
 
+function JojoCssMemeCardView({ card }: { card: JojoCssMemeCard }) {
+  return (
+    <div className={`jojo-css-meme-card jojo-css-meme-card-${card.tone}`}>
+      <div className="jojo-css-meme-mark" aria-hidden="true">
+        <span>{card.mark}</span>
+      </div>
+      <strong>{card.title}</strong>
+      <small>{card.subtitle}</small>
+    </div>
+  );
+}
+
 function WechatMessageContent({ project, message }: { project: DramaProject; message: ChatMessage }) {
-  const src = resolvePublicAssetPath(imageSourceForMessage(project, message));
   const jojoMode = isJojoProject(project);
   if (message.type === "transfer") {
     return (
@@ -254,6 +603,7 @@ function WechatMessageContent({ project, message }: { project: DramaProject; mes
     );
   }
   if (message.type === "image") {
+    const src = resolvePublicAssetPath(imageSourceForMessage(project, message));
     const copy = imageNarrativeCopy(project, message);
     return (
       <div className="wechat-image-card">
@@ -266,7 +616,14 @@ function WechatMessageContent({ project, message }: { project: DramaProject; mes
     );
   }
   if (message.type === "meme") {
-    return <div className="wechat-meme-card">{src ? <img src={src} alt={message.text || "表情"} /> : <div className="wechat-meme-fallback">表情</div>}<span>{message.text}</span></div>;
+    const cssCard = jojoCssMemeCardForMessage(message);
+    const src = cssCard ? undefined : resolvePublicAssetPath(imageSourceForMessage(project, message));
+    return (
+      <div className={cssCard ? "wechat-meme-card wechat-meme-card-css" : "wechat-meme-card"}>
+        {cssCard ? <JojoCssMemeCardView card={cssCard} /> : src ? <img src={src} alt={message.text || "表情"} /> : <div className="wechat-meme-fallback">表情</div>}
+        {!cssCard && message.text ? <span>{message.text}</span> : null}
+      </div>
+    );
   }
   return <div className="wechat-bubble">{message.text || message.ttsText || " "}</div>;
 }
@@ -335,9 +692,9 @@ function WechatStoryPreview({
 
 export default function App({ storyPackage }: AppProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const [project, setProject] = useState<DramaProject>(() => createInitialPlaybackProject(storyPackage));
+  const [project, setProject] = useState<DramaProject>(() => createEmptyInitialProject(storyPackage));
   const [promptCards, setPromptCards] = useState<PromptCard[]>([]);
-  const [draftPrompt, setDraftPrompt] = useState(initialPromptFor(storyPackage));
+  const [draftPrompt, setDraftPrompt] = useState("");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("wechat");
   const [status, setStatus] = useState<ApiState>("idle");
   const [statusText, setStatusText] = useState("正在检查 DeepSeek 配置...");
@@ -350,12 +707,29 @@ export default function App({ storyPackage }: AppProps) {
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const [promptSuggestionActive, setPromptSuggestionActive] = useState(false);
   const [promptSuggestionKey, setPromptSuggestionKey] = useState(0);
-  const [pendingPromptCard, setPendingPromptCard] = useState<PendingPromptCard | null>(null);
+  const [deferredSuggestedPrompt, setDeferredSuggestedPrompt] = useState<string | null>(null);
+  const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false);
+  const [pendingPromptCards, setPendingPromptCards] = useState<PendingPromptCard[]>([]);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [focusedPromptCardId, setFocusedPromptCardId] = useState<string | null>(null);
+  const [focusedPendingPromptCardId, setFocusedPendingPromptCardId] = useState<string | null>(null);
+  const [editingPendingPromptCardId, setEditingPendingPromptCardId] = useState<string | null>(null);
+  const [openPromptCardMenuId, setOpenPromptCardMenuId] = useState<string | null>(null);
   const [scrollTargetMessageId, setScrollTargetMessageId] = useState<string | null>(null);
   const scrollTargetMessageIdRef = useRef<string | null>(null);
+  const projectRef = useRef(project);
+  const promptCardsRef = useRef(promptCards);
+  const draftPromptRef = useRef(draftPrompt);
+  const pendingPromptCardsRef = useRef<PendingPromptCard[]>([]);
   const leftPanelLayoutSnapshotRef = useRef<LayoutSnapshot>(new Map());
+  const promptCardLayoutSnapshotRef = useRef<LayoutSnapshot>(new Map());
+  const pendingLeftPanelLayoutSnapshotRef = useRef<LayoutSnapshot | null>(null);
+  const pendingPromptCardLayoutSnapshotRef = useRef<LayoutSnapshot | null>(null);
+  const storyLayoutSnapshotLockedRef = useRef(false);
+  const storyLayoutUnlockTimerRef = useRef<number | undefined>(undefined);
+  const settledPromptCardIdsRef = useRef<Set<string>>(new Set());
+  const completedPromptCardLayoutKeysRef = useRef<Map<string, string>>(new Map());
+  const previousStoryPanelOpenRef = useRef(storyPanelOpen);
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
@@ -364,8 +738,12 @@ export default function App({ storyPackage }: AppProps) {
   const promptSuggestionTimerRef = useRef<number | undefined>(undefined);
   const toastTimerRef = useRef<number | undefined>(undefined);
   const generationAbortRef = useRef<AbortController | null>(null);
+  const generationProgressRef = useRef(0);
   const generationProgressTimerRef = useRef<number | undefined>(undefined);
+  const pendingPromptRemovalTimersRef = useRef<Map<string, number>>(new Map());
   const generationRunRef = useRef(0);
+  const queueProcessingRef = useRef(false);
+  const activePromptCardIdRef = useRef<string | null>(null);
   const promptRestoreUndoRef = useRef<PromptRestoreUndo | null>(null);
   const promptAnimationFocusGuardUntilRef = useRef(0);
   const playerRef = useRef<PlayerRef>(null);
@@ -378,10 +756,87 @@ export default function App({ storyPackage }: AppProps) {
     [project, visibleMessageCount]
   );
 
+  function syncCurrentStoryLayoutSnapshot() {
+    const root = rootRef.current;
+    if (!root) return;
+    leftPanelLayoutSnapshotRef.current = readLeftPanelLayoutSnapshot(root);
+    promptCardLayoutSnapshotRef.current = readPromptCardLayoutSnapshot(root);
+  }
+
+  function captureCurrentStoryLayoutSnapshot() {
+    if (storyLayoutSnapshotLockedRef.current) return;
+    const root = rootRef.current;
+    if (!root) return;
+    if (storyLayoutUnlockTimerRef.current) {
+      window.clearTimeout(storyLayoutUnlockTimerRef.current);
+      storyLayoutUnlockTimerRef.current = undefined;
+    }
+    pendingLeftPanelLayoutSnapshotRef.current = readLeftPanelLayoutSnapshot(root);
+    pendingPromptCardLayoutSnapshotRef.current = readPromptCardLayoutSnapshot(root);
+    storyLayoutSnapshotLockedRef.current = true;
+  }
+
   function updateScrollTargetMessageId(nextMessageId: string | null) {
     scrollTargetMessageIdRef.current = nextMessageId;
     setScrollTargetMessageId(nextMessageId);
   }
+
+  function updatePendingPromptCards(updater: (current: PendingPromptCard[]) => PendingPromptCard[]) {
+    const currentCards = pendingPromptCardsRef.current;
+    const nextCards = updater(currentCards);
+    if (nextCards === currentCards) return currentCards;
+    captureCurrentStoryLayoutSnapshot();
+    pendingPromptCardsRef.current = nextCards;
+    setPendingPromptCards(nextCards);
+    return nextCards;
+  }
+
+  function canGeneratePendingPromptCard(card: PendingPromptCard) {
+    return card.status === "queued" || card.status === "generating";
+  }
+
+  function clearPendingPromptRemovalTimers() {
+    pendingPromptRemovalTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    pendingPromptRemovalTimersRef.current.clear();
+  }
+
+  function finalizePendingPromptCardRemoval(cardId: string) {
+    const existingTimer = pendingPromptRemovalTimersRef.current.get(cardId);
+    if (existingTimer) window.clearTimeout(existingTimer);
+    const timer = window.setTimeout(() => {
+      pendingPromptRemovalTimersRef.current.delete(cardId);
+      updatePendingPromptCards((cards) => cards.filter((card) => card.id !== cardId));
+    }, 280);
+    pendingPromptRemovalTimersRef.current.set(cardId, timer);
+  }
+
+  function markPendingPromptCardRemoving(cardId: string) {
+    const nextCards = updatePendingPromptCards((cards) => cards.map((card) => (
+      card.id === cardId ? { ...card, status: "removing" } : card
+    )));
+    finalizePendingPromptCardRemoval(cardId);
+    return nextCards;
+  }
+
+  function updateGenerationProgress(nextProgress: number | ((current: number) => number)) {
+    const rawProgress = typeof nextProgress === "function" ? nextProgress(generationProgressRef.current) : nextProgress;
+    const roundedProgress = Math.round(Math.max(0, Math.min(generationProgressCap, rawProgress)));
+    generationProgressRef.current = roundedProgress;
+    setGenerationProgress(roundedProgress);
+    return roundedProgress;
+  }
+
+  useEffect(() => {
+    projectRef.current = project;
+  }, [project]);
+
+  useEffect(() => {
+    promptCardsRef.current = promptCards;
+  }, [promptCards]);
+
+  useEffect(() => {
+    draftPromptRef.current = draftPrompt;
+  }, [draftPrompt]);
 
   useEffect(() => () => {
     if (revealTimerRef.current) window.clearInterval(revealTimerRef.current);
@@ -389,6 +844,8 @@ export default function App({ storyPackage }: AppProps) {
     if (promptSuggestionTimerRef.current) window.clearTimeout(promptSuggestionTimerRef.current);
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     if (generationProgressTimerRef.current) window.clearInterval(generationProgressTimerRef.current);
+    if (storyLayoutUnlockTimerRef.current) window.clearTimeout(storyLayoutUnlockTimerRef.current);
+    clearPendingPromptRemovalTimers();
     generationAbortRef.current?.abort();
   }, []);
 
@@ -410,8 +867,34 @@ export default function App({ storyPackage }: AppProps) {
   }, [settingsMenuOpen]);
 
   useEffect(() => {
+    if (!openPromptCardMenuId) return undefined;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest(".prompt-card-menu-root")) return;
+      setOpenPromptCardMenuId(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenPromptCardMenuId(null);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openPromptCardMenuId]);
+
+  useEffect(() => {
     if (project.messages.length) startMessageReveal(0, project.messages.length);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (draftPromptRef.current.trim()) return;
+      showSuggestedPrompt(initialPromptFor(storyPackage));
+      setStatusText((current) => current === "正在检查 DeepSeek 配置..." ? "准备生成第一段故事" : current);
+    }, 260);
+    return () => window.clearTimeout(timer);
+  }, [storyPackage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -453,31 +936,43 @@ export default function App({ storyPackage }: AppProps) {
       gsap.fromTo(
         ".motion-in",
         { y: 18, opacity: 0, filter: "blur(6px)" },
-        { y: 0, opacity: 1, filter: "blur(0px)", duration: 0.55, stagger: 0.055, ease: "power3.out" }
+        {
+          y: 0,
+          opacity: 1,
+          filter: "blur(0px)",
+          duration: 0.55,
+          stagger: 0.055,
+          ease: "power3.out"
+        }
       );
     }, root);
 
     const interactiveSelector = "button,a,textarea,.prompt-card";
     const findInteractive = (target: EventTarget | null) => target instanceof Element ? target.closest<HTMLElement>(interactiveSelector) : null;
     const isMovingInside = (event: PointerEvent, target: HTMLElement) => event.relatedTarget instanceof Node && target.contains(event.relatedTarget);
+    const usesOwnMotion = (target: HTMLElement) => target.classList.contains("story-action-button");
     const handleOver = (event: PointerEvent) => {
       const target = findInteractive(event.target);
       if (!target || isMovingInside(event, target) || target.matches("[disabled],[aria-disabled='true']")) return;
+      if (usesOwnMotion(target)) return;
       gsap.to(target, { y: -2, scale: 1.01, duration: 0.18, ease: "power2.out" });
     };
     const handleOut = (event: PointerEvent) => {
       const target = findInteractive(event.target);
       if (!target || isMovingInside(event, target)) return;
+      if (usesOwnMotion(target)) return;
       gsap.to(target, { y: 0, scale: 1, duration: 0.2, ease: "power2.out" });
     };
     const handleDown = (event: PointerEvent) => {
       const target = findInteractive(event.target);
       if (!target || target.matches("[disabled],[aria-disabled='true']")) return;
+      if (usesOwnMotion(target)) return;
       gsap.to(target, { scale: 0.985, duration: 0.08, ease: "power2.out" });
     };
     const handleUp = (event: PointerEvent) => {
       const target = findInteractive(event.target);
       if (!target) return;
+      if (usesOwnMotion(target)) return;
       gsap.to(target, { scale: 1.01, duration: 0.12, ease: "power2.out" });
     };
 
@@ -564,7 +1059,13 @@ export default function App({ storyPackage }: AppProps) {
 
   useEffect(() => {
     if (!rootRef.current || !promptCards.length) return;
-    const latest = rootRef.current.querySelector(".prompt-card");
+    const latestCardId = promptCards[promptCards.length - 1]?.id;
+    if (latestCardId && settledPromptCardIdsRef.current.has(latestCardId)) {
+      settledPromptCardIdsRef.current.delete(latestCardId);
+      return;
+    }
+    const latest = Array.from(rootRef.current.querySelectorAll<HTMLElement>("[data-prompt-card-id]"))
+      .find((element) => element.dataset.promptCardId === latestCardId);
     if (latest) {
       gsap.fromTo(latest, { y: -10, opacity: 0 }, { y: 0, opacity: 1, duration: 0.32, ease: "power3.out" });
     }
@@ -654,25 +1155,64 @@ export default function App({ storyPackage }: AppProps) {
   function startGenerationProgress(estimateMs: number) {
     stopGenerationProgress();
     const startedAt = Date.now();
-    setGenerationProgress(1);
+    updateGenerationProgress(1);
     generationProgressTimerRef.current = window.setInterval(() => {
-      setGenerationProgress(estimateGenerationProgress(startedAt, estimateMs));
+      updateGenerationProgress(estimateGenerationProgress(startedAt, estimateMs));
     }, 320);
+  }
+
+  async function completeGenerationProgress(runId: number, signal: AbortSignal) {
+    stopGenerationProgress();
+    const startProgress = Math.min(generationProgressRef.current || 1, generationProgressCap - 1);
+    const startedAt = performance.now();
+    const durationMs = Math.max(260, Math.min(520, (generationProgressCap - startProgress) * 18));
+
+    await new Promise<void>((resolve) => {
+      const tick = (now: number) => {
+        if (!isCurrentGeneration(runId, signal)) {
+          resolve();
+          return;
+        }
+        const progressRatio = Math.min(1, (now - startedAt) / durationMs);
+        const easedProgress = 1 - Math.pow(1 - progressRatio, 3);
+        updateGenerationProgress(startProgress + (generationProgressCap - startProgress) * easedProgress);
+        if (progressRatio < 1) {
+          window.requestAnimationFrame(tick);
+          return;
+        }
+        updateGenerationProgress(generationProgressCap);
+        resolve();
+      };
+      window.requestAnimationFrame(tick);
+    });
+
+    if (!isCurrentGeneration(runId, signal)) return false;
+    await new Promise((resolve) => window.setTimeout(resolve, 90));
+    return isCurrentGeneration(runId, signal);
   }
 
   function stopStoryGeneration() {
     if (status !== "loading") return;
-    const promptToEdit = pendingPromptCard?.prompt || "";
+    const activeCardId = activePromptCardIdRef.current;
+    const activeCard = pendingPromptCardsRef.current.find((card) => card.id === activeCardId && card.status === "generating");
+    const promptToEdit = activeCard?.prompt || "";
+    if (!activeCard) return;
     generationRunRef.current += 1;
     generationAbortRef.current?.abort();
     generationAbortRef.current = null;
     stopGenerationProgress();
     if (promptToEdit) restorePromptForEditing(promptToEdit);
-    setPendingPromptCard(null);
-    setGenerationProgress(0);
+    activePromptCardIdRef.current = null;
+    const remainingCards = markPendingPromptCardRemoving(activeCard.id);
+    updateGenerationProgress(0);
     setVideoProgress(0);
-    setStatus("idle");
-    setStatusText("已停止生成，可以重新编辑这张故事卡片");
+    if (remainingCards.some(canGeneratePendingPromptCard)) {
+      setStatus("loading");
+      setStatusText("已取回当前卡片，继续处理排队中的故事");
+    } else {
+      setStatus("idle");
+      setStatusText("已停止生成，可以重新编辑这张故事卡");
+    }
   }
 
   function startMessageReveal(fromCount: number, toCount: number) {
@@ -713,6 +1253,7 @@ export default function App({ storyPackage }: AppProps) {
   function showSuggestedPrompt(nextPrompt: string, options: { preservePromptUndo?: boolean; focusAtEnd?: boolean } = {}) {
     if (promptSuggestionTimerRef.current) window.clearTimeout(promptSuggestionTimerRef.current);
     if (!options.preservePromptUndo) promptRestoreUndoRef.current = null;
+    const animationMs = promptRiseAnimationMs(nextPrompt);
     setDraftPrompt(nextPrompt);
     setPromptSuggestionKey((current) => current + 1);
     setPromptSuggestionActive(true);
@@ -720,7 +1261,49 @@ export default function App({ storyPackage }: AppProps) {
     promptSuggestionTimerRef.current = window.setTimeout(() => {
       setPromptSuggestionActive(false);
       promptSuggestionTimerRef.current = undefined;
-    }, promptRiseAnimationMs(nextPrompt));
+    }, animationMs);
+  }
+
+  function dismissDeferredSuggestion() {
+    setSuggestionDialogOpen(false);
+  }
+
+  function adoptDeferredSuggestion() {
+    const suggestedPrompt = deferredSuggestedPrompt?.trim();
+    if (!suggestedPrompt) return;
+    const previousPrompt = draftPromptRef.current;
+    promptRestoreUndoRef.current = previousPrompt === suggestedPrompt ? null : { before: previousPrompt, after: suggestedPrompt };
+    setSuggestionDialogOpen(false);
+    setDeferredSuggestedPrompt(null);
+    showSuggestedPrompt(suggestedPrompt, { preservePromptUndo: true, focusAtEnd: true });
+  }
+
+  function offerSuggestedPrompt(nextPrompt: string) {
+    const suggestedPrompt = nextPrompt.trim();
+    if (!suggestedPrompt) return;
+    if (draftPromptRef.current.trim()) {
+      setDeferredSuggestedPrompt(suggestedPrompt);
+      setSuggestionDialogOpen(false);
+      return;
+    }
+    setDeferredSuggestedPrompt(null);
+    setSuggestionDialogOpen(false);
+    showSuggestedPrompt(suggestedPrompt);
+  }
+
+  function suggestedPromptForSegment(
+    result: { project: DramaProject; card: PromptCard; messages: ChatMessage[]; suggestedPrompt?: string },
+    nextPromptCards: PromptCard[]
+  ) {
+    const deepseekSuggestion = result.suggestedPrompt?.trim();
+    if (deepseekSuggestion) return deepseekSuggestion;
+    if (nextPromptCards.length !== 1) return "";
+    return suggestNextStoryPrompt({
+      project: result.project,
+      prompt: result.card.prompt,
+      promptCards: nextPromptCards,
+      messages: result.messages
+    });
   }
 
   function restorePromptForEditing(nextPrompt: string) {
@@ -755,29 +1338,37 @@ export default function App({ storyPackage }: AppProps) {
     finishPromptSuggestionAnimation();
   }
 
-  function applyStorySegment(result: { project: DramaProject; card: PromptCard; messages: ChatMessage[] }, nextStatusText: string) {
-    const previousCount = project.messages.length;
-    const nextPromptCards = [...promptCards, result.card];
-    const nextPrompt = suggestNextStoryPrompt({
-      project: result.project,
-      prompt: result.card.prompt,
-      promptCards: nextPromptCards,
-      messages: result.messages
-    });
+  function applyStorySegment(
+    result: { project: DramaProject; card: PromptCard; messages: ChatMessage[]; suggestedPrompt?: string },
+    nextStatusText: string,
+    options: {
+      baseProject?: DramaProject;
+      basePromptCards?: PromptCard[];
+      queueWillContinue?: boolean;
+    } = {}
+  ) {
+    const baseProject = options.baseProject ?? projectRef.current;
+    const basePromptCards = options.basePromptCards ?? promptCardsRef.current;
+    const previousCount = baseProject.messages.length;
+    let nextCard = result.card;
+    const suggestedPrompt = suggestedPromptForSegment(result, [...basePromptCards, nextCard]);
+    if (suggestedPrompt) nextCard = { ...nextCard, suggestedPrompt };
+    const nextPromptCards = [...basePromptCards, nextCard];
+    captureCurrentStoryLayoutSnapshot();
+    projectRef.current = result.project;
+    promptCardsRef.current = nextPromptCards;
     setProject(result.project);
     setPromptCards(nextPromptCards);
     stopGenerationProgress();
-    setGenerationProgress(100);
-    setPendingPromptCard(null);
     if (!scrollTargetMessageIdRef.current) {
-      setFocusedPromptCardId(result.card.id);
+      setFocusedPromptCardId(nextCard.id);
     }
     generationAbortRef.current = null;
-    showSuggestedPrompt(nextPrompt);
+    if (!options.queueWillContinue) offerSuggestedPrompt(suggestedPrompt);
     setVideoResult(null);
-    setStatus("done");
-    setStatusText(nextStatusText);
-    if (shouldUseStoryModal()) setStoryPanelOpenWithContinuity(false);
+    setStatus(options.queueWillContinue ? "loading" : "done");
+    setStatusText(options.queueWillContinue ? `${nextStatusText}，继续生成下一张...` : nextStatusText);
+    if (!options.queueWillContinue && shouldUseStoryModal()) setStoryPanelOpenWithContinuity(false);
     startMessageReveal(previousCount, result.project.messages.length);
   }
 
@@ -796,78 +1387,349 @@ export default function App({ storyPackage }: AppProps) {
     doc.startViewTransition(() => flushSync(update));
   }
 
-  async function continueStory() {
-    const prompt = draftPrompt.trim();
-    if (!prompt) {
-      setStatus("error");
-      setStatusText("先写一段要推进的故事");
-      return;
+  async function generateStoryForPrompt({
+    prompt,
+    projectSnapshot,
+    promptCardsSnapshot,
+    runId,
+    signal
+  }: {
+    prompt: string;
+    projectSnapshot: DramaProject;
+    promptCardsSnapshot: PromptCard[];
+    runId: number;
+    signal: AbortSignal;
+  }) {
+    if (!projectSnapshot.messages.length && !promptCardsSnapshot.length && isInitialPresetPrompt(storyPackage, prompt)) {
+      setStatusText("正在展开默认开场...");
+      const result = createInitialPresetStorySegment(storyPackage, prompt);
+      if (!isCurrentGeneration(runId, signal)) throw new Error("generation cancelled");
+      return { result, statusText: `默认开场已追加 ${result.messages.length} 条消息` };
     }
+
+    let backendError: unknown;
+    setStatusText("正在请求后端 DeepSeek 续写...");
+    try {
+      const result = await generateBackendStorySegment({ project: projectSnapshot, prompt, promptCards: promptCardsSnapshot, signal });
+      if (!isCurrentGeneration(runId, signal)) throw new Error("generation cancelled");
+      return { result, statusText: `DeepSeek 后端已追加 ${result.messages.length} 条消息` };
+    } catch (error) {
+      if (!isCurrentGeneration(runId, signal)) throw error;
+      backendError = error;
+      console.warn("[deepseek] backend unavailable", error);
+    }
+
+    if (hasBrowserDeepSeekKey()) {
+      setStatusText("后端不可用，正在尝试浏览器公开配置...");
+      try {
+        const result = await generateDeepSeekStorySegment({ project: projectSnapshot, prompt, promptCards: promptCardsSnapshot, signal });
+        if (!isCurrentGeneration(runId, signal)) throw new Error("generation cancelled");
+        return { result, statusText: `DeepSeek 前端已追加 ${result.messages.length} 条消息` };
+      } catch (browserError) {
+        if (!isCurrentGeneration(runId, signal)) throw browserError;
+        console.warn("[deepseek] browser direct unavailable", browserError);
+        setStatusText("DeepSeek 未连通，已停止生成");
+        throw browserError;
+      }
+    }
+
+    setStatusText("DeepSeek 未连通，已停止生成");
+    throw backendError instanceof Error ? backendError : new Error("DeepSeek 未连通");
+  }
+
+  async function drainPromptQueue() {
+    if (queueProcessingRef.current) return;
+    queueProcessingRef.current = true;
+
+    try {
+      while (pendingPromptCardsRef.current.some(canGeneratePendingPromptCard)) {
+        const activeCard = pendingPromptCardsRef.current.find(canGeneratePendingPromptCard);
+        if (!activeCard) break;
+        activePromptCardIdRef.current = activeCard.id;
+        setFocusedPendingPromptCardId((current) => current === activeCard.id ? null : current);
+        setEditingPendingPromptCardId((current) => current === activeCard.id ? null : current);
+        updatePendingPromptCards((cards) => {
+          let changed = false;
+          const nextCards = cards.map((card) => {
+            const nextStatus: PendingPromptCard["status"] = card.id === activeCard.id ? "generating" : card.status === "generating" ? "queued" : card.status;
+            if (nextStatus === card.status) return card;
+            changed = true;
+            return { ...card, status: nextStatus };
+          });
+          return changed ? nextCards : cards;
+        });
+
+        const projectSnapshot = projectRef.current;
+        const promptCardsSnapshot = promptCardsRef.current;
+        const controller = new AbortController();
+        const runId = generationRunRef.current + 1;
+        generationRunRef.current = runId;
+        generationAbortRef.current = controller;
+        const signal = controller.signal;
+
+        setStatus("loading");
+        setVideoProgress(0);
+        startGenerationProgress(estimatedGenerationMs(projectSnapshot, storyPackage));
+
+        try {
+          const { result, statusText } = await generateStoryForPrompt({
+            prompt: activeCard.prompt,
+            projectSnapshot,
+            promptCardsSnapshot,
+            runId,
+            signal
+          });
+          if (!isCurrentGeneration(runId, signal)) continue;
+          if (!await completeGenerationProgress(runId, signal)) continue;
+
+          updatePendingPromptCards((cards) => cards.map((card) => (
+            card.id === activeCard.id
+              ? {
+                  ...card,
+                  status: "settling",
+                  completedCardId: result.card.id,
+                  completedCardNumber: promptCardsSnapshot.length + 1
+                }
+              : card
+          )));
+          await new Promise((resolve) => window.setTimeout(resolve, 300));
+          if (!isCurrentGeneration(runId, signal)) continue;
+
+          const queueWillContinue = pendingPromptCardsRef.current.some((card) => card.id !== activeCard.id && canGeneratePendingPromptCard(card));
+          settledPromptCardIdsRef.current.add(result.card.id);
+          completedPromptCardLayoutKeysRef.current.set(result.card.id, `pending-${activeCard.id}`);
+          applyStorySegment(result, statusText, {
+            baseProject: projectSnapshot,
+            basePromptCards: promptCardsSnapshot,
+            queueWillContinue
+          });
+          updatePendingPromptCards((cards) => cards.filter((card) => card.id !== activeCard.id));
+        } catch (error) {
+          if (!isCurrentGeneration(runId, signal)) continue;
+          console.error("[deepseek] queue failed", error);
+          showToast(deepSeekServiceToast);
+          const message = error instanceof Error ? error.message : "DeepSeek 续写失败";
+          restorePromptForEditing(activeCard.prompt);
+          setStatus("error");
+          setStatusText(message);
+          markPendingPromptCardRemoving(activeCard.id);
+          break;
+        } finally {
+          if (generationRunRef.current === runId) {
+            generationAbortRef.current = null;
+            stopGenerationProgress();
+            updateGenerationProgress(0);
+          }
+        }
+      }
+    } finally {
+      queueProcessingRef.current = false;
+      activePromptCardIdRef.current = null;
+      if (!pendingPromptCardsRef.current.some(canGeneratePendingPromptCard)) {
+        generationAbortRef.current = null;
+        stopGenerationProgress();
+        updateGenerationProgress(0);
+      }
+    }
+  }
+
+  function removeQueuedPromptCard(cardId: string) {
+    const targetCard = pendingPromptCardsRef.current.find((card) => card.id === cardId);
+    if (!targetCard || targetCard.status !== "queued") return;
+    markPendingPromptCardRemoving(cardId);
+    setFocusedPendingPromptCardId((current) => current === cardId ? null : current);
+    setEditingPendingPromptCardId((current) => current === cardId ? null : current);
+    setStatusText("已移除排队中的故事卡");
+  }
+
+  function updateQueuedPromptCard(cardId: string, nextPrompt: string) {
+    const targetCard = pendingPromptCardsRef.current.find((card) => card.id === cardId);
+    const prompt = nextPrompt.trim();
+    if (!targetCard || targetCard.status === "generating" || !prompt) return;
+    updatePendingPromptCards((cards) => cards.map((card) => (
+      card.id === cardId ? { ...card, prompt } : card
+    )));
+    setFocusedPendingPromptCardId(cardId);
+    setEditingPendingPromptCardId(null);
+    setStatusText("已更新排队中的故事卡");
+  }
+
+  function selectPendingPromptCard(cardId: string, options: { focusElement?: boolean } = {}) {
+    const targetCard = pendingPromptCardsRef.current.find((card) => card.id === cardId && card.status === "queued");
+    if (!targetCard) return false;
+    setFocusedPromptCardId(null);
+    setFocusedPendingPromptCardId(cardId);
+    setEditingPendingPromptCardId((current) => current && current !== cardId ? null : current);
+    if (options.focusElement) {
+      window.requestAnimationFrame(() => {
+        const targetCardElement = rootRef.current?.querySelector<HTMLElement>(`[data-pending-prompt-card-id="${cardId}"]`);
+        targetCardElement?.focus({ preventScroll: true });
+      });
+    }
+    return true;
+  }
+
+  function startPendingPromptCardEdit(cardId: string) {
+    const targetCard = pendingPromptCardsRef.current.find((card) => card.id === cardId && card.status === "queued");
+    if (!targetCard) return false;
+    setFocusedPromptCardId(null);
+    setFocusedPendingPromptCardId(cardId);
+    setEditingPendingPromptCardId(cardId);
+    return true;
+  }
+
+  function cancelPendingPromptCardEdit() {
+    if (!editingPendingPromptCardId) return false;
+    setEditingPendingPromptCardId(null);
+    setStatusText("已取消编辑排队中的故事卡");
+    return true;
+  }
+
+  function editFocusedPendingPromptCard() {
+    if (!focusedPendingPromptCardId) return false;
+    return startPendingPromptCardEdit(focusedPendingPromptCardId);
+  }
+
+  function removeFocusedPendingPromptCard() {
+    if (!focusedPendingPromptCardId) return false;
+    const targetCard = pendingPromptCardsRef.current.find((card) => card.id === focusedPendingPromptCardId && card.status === "queued");
+    if (!targetCard) return false;
+    removeQueuedPromptCard(targetCard.id);
+    return true;
+  }
+
+  function continueStory() {
+    const prompt = draftPrompt.trim();
+    if (!prompt) return;
     promptRestoreUndoRef.current = null;
     finishPromptSuggestionAnimation();
-    generationAbortRef.current?.abort();
-    const controller = new AbortController();
-    const runId = generationRunRef.current + 1;
-    generationRunRef.current = runId;
-    generationAbortRef.current = controller;
-    const signal = controller.signal;
+    setDeferredSuggestedPrompt(null);
+    setSuggestionDialogOpen(false);
+    const card: PendingPromptCard = {
+      id: `pending-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      prompt,
+      status: pendingPromptCardsRef.current.some(canGeneratePendingPromptCard) || queueProcessingRef.current ? "queued" : "generating"
+    };
+    const nextQueue = updatePendingPromptCards((cards) => [...cards, card]);
+    const cardsAhead = nextQueue.filter((item) => item.id !== card.id && canGeneratePendingPromptCard(item)).length;
     setStatus("loading");
     setVideoProgress(0);
-    startGenerationProgress(estimatedGenerationMs(project, storyPackage));
-    setPendingPromptCard({ id: `pending-${runId}-${Date.now()}`, prompt });
     setDraftPrompt("");
     if (!scrollTargetMessageIdRef.current) {
       setFocusedPromptCardId(null);
       updateScrollTargetMessageId(null);
     }
-    setStatusText("正在请求后端 DeepSeek 续写...");
+    setStatusText(cardsAhead ? `已加入队列，前面还有 ${cardsAhead} 张` : "已加入队列，准备生成...");
+  }
 
+  function suggestPromptAfterCard(card: PromptCard, nextProject: DramaProject, nextPromptCards: PromptCard[]) {
+    const storedSuggestion = card.suggestedPrompt?.trim();
+    if (storedSuggestion) return storedSuggestion;
+    const cardMessageIdSet = new Set(card.messageIds);
+    const segmentMessages = nextProject.messages.filter((message) => cardMessageIdSet.has(message.id));
+    return suggestNextStoryPrompt({
+      project: nextProject,
+      prompt: card.prompt,
+      promptCards: nextPromptCards,
+      messages: segmentMessages.length ? segmentMessages : nextProject.messages
+    });
+  }
+
+  function restartFromPromptCard(card: PromptCard) {
+    const currentPromptCards = promptCardsRef.current;
+    const cardIndex = currentPromptCards.findIndex((item) => item.id === card.id);
+    if (cardIndex < 0) {
+      setStatus("error");
+      setStatusText("没有找到这张故事卡");
+      return;
+    }
+
+    generationRunRef.current += 1;
+    generationAbortRef.current?.abort();
+    generationAbortRef.current = null;
+    stopGenerationProgress();
+    if (revealTimerRef.current) {
+      window.clearInterval(revealTimerRef.current);
+      revealTimerRef.current = undefined;
+    }
+    pendingPromptRemovalTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    pendingPromptRemovalTimersRef.current.clear();
+    queueProcessingRef.current = false;
+    activePromptCardIdRef.current = null;
+
+    const currentProject = projectRef.current;
+    const nextPromptCards = currentPromptCards.slice(0, cardIndex + 1);
+    const lastMessageId = [...card.messageIds].reverse().find((messageId) => (
+      currentProject.messages.some((message) => message.id === messageId)
+    ));
+    const lastMessageIndex = lastMessageId
+      ? currentProject.messages.findIndex((message) => message.id === lastMessageId)
+      : -1;
+    const nextMessages = lastMessageIndex >= 0
+      ? currentProject.messages.slice(0, lastMessageIndex + 1)
+      : currentProject.messages.filter((message) => nextPromptCards.some((item) => item.messageIds.includes(message.id)));
+    const nextMessageIds = new Set(nextMessages.map((message) => message.id));
+    const nextProject: DramaProject = {
+      ...currentProject,
+      brief: nextPromptCards.map((item) => item.prompt).join("\n") || currentProject.brief,
+      messages: nextMessages
+    };
+    const nextSuggestedPrompt = suggestPromptAfterCard(card, nextProject, nextPromptCards);
+
+    captureCurrentStoryLayoutSnapshot();
+    projectRef.current = nextProject;
+    promptCardsRef.current = nextPromptCards;
+    settledPromptCardIdsRef.current.clear();
+    completedPromptCardLayoutKeysRef.current.clear();
+    setProject(nextProject);
+    setPromptCards(nextPromptCards);
+    updatePendingPromptCards(() => []);
+    setFocusedPromptCardId(card.id);
+    setFocusedPendingPromptCardId(null);
+    setEditingPendingPromptCardId(null);
+    setOpenPromptCardMenuId(null);
+    updateScrollTargetMessageId(null);
+    updateGenerationProgress(0);
+    setVideoProgress(0);
+    setVideoResult(null);
+    setVisibleMessageCount(nextMessages.length);
+    setClips((current) => Object.fromEntries(
+      Object.entries(current).filter(([messageId]) => nextMessageIds.has(messageId))
+    ) as TtsClipMap);
+    offerSuggestedPrompt(nextSuggestedPrompt);
+    setStatus("done");
+    setStatusText(`已从第 ${cardIndex + 1} 张故事卡重新开始`);
+  }
+
+  function copyTextWithHiddenTextarea(text: string) {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    return copied;
+  }
+
+  async function copyPromptCardText(card: PromptCard) {
+    setOpenPromptCardMenuId(null);
+    if (copyTextWithHiddenTextarea(card.prompt)) {
+      setStatus("done");
+      setStatusText("已复制当前故事卡文本");
+      return;
+    }
     try {
-      let backendError: unknown;
-      try {
-        const result = await generateBackendStorySegment({ project, prompt, promptCards, signal });
-        if (!isCurrentGeneration(runId, signal)) return;
-        applyStorySegment(result, `DeepSeek 后端已追加 ${result.messages.length} 条消息`);
-        return;
-      } catch (error) {
-        if (!isCurrentGeneration(runId, signal)) return;
-        backendError = error;
-        console.warn("[deepseek] backend unavailable", error);
-      }
-
-      if (hasBrowserDeepSeekKey()) {
-        setStatusText("后端不可用，正在尝试浏览器公开配置...");
-        try {
-          const result = await generateDeepSeekStorySegment({ project, prompt, promptCards, signal });
-          if (!isCurrentGeneration(runId, signal)) return;
-          applyStorySegment(result, `DeepSeek 前端已追加 ${result.messages.length} 条消息`);
-          return;
-        } catch (browserError) {
-          if (!isCurrentGeneration(runId, signal)) return;
-          console.warn("[deepseek] browser direct unavailable", browserError);
-          showToast(deepSeekServiceToast);
-        }
-      } else if (backendError) {
-        showToast(deepSeekServiceToast);
-      }
-
-      setStatusText("DeepSeek 未连通，使用本地续写...");
-      if (!isCurrentGeneration(runId, signal)) return;
-      const result = generateStorySegment({ project, prompt, promptCards });
-      applyStorySegment(result, `DeepSeek 未连通，已本地续写 ${result.messages.length} 条`);
-    } catch (error) {
-      if (!isCurrentGeneration(runId, signal)) return;
-      console.error("[deepseek] fallback", error);
-      showToast(deepSeekServiceToast);
-      const result = generateStorySegment({ project, prompt, promptCards });
-      applyStorySegment(result, `DeepSeek 异常，已本地续写 ${result.messages.length} 条`);
-    } finally {
-      if (generationRunRef.current === runId) {
-        generationAbortRef.current = null;
-        stopGenerationProgress();
-        setGenerationProgress(0);
-        setPendingPromptCard(null);
-      }
+      await navigator.clipboard.writeText(card.prompt);
+      setStatus("done");
+      setStatusText("已复制当前故事卡文本");
+    } catch {
+      setStatus("error");
+      setStatusText("复制失败，请手动复制故事卡文本");
     }
   }
 
@@ -876,26 +1738,40 @@ export default function App({ storyPackage }: AppProps) {
     generationAbortRef.current?.abort();
     generationAbortRef.current = null;
     stopGenerationProgress();
-    const nextProject = { ...createInitialStaticProject(storyPackage), messages: [] };
+    clearPendingPromptRemovalTimers();
+    const nextProject = createEmptyInitialProject(storyPackage);
+    captureCurrentStoryLayoutSnapshot();
+    projectRef.current = nextProject;
+    promptCardsRef.current = [];
+    settledPromptCardIdsRef.current.clear();
+    completedPromptCardLayoutKeysRef.current.clear();
     setProject(nextProject);
     setPromptCards([]);
-    setPendingPromptCard(null);
-    setGenerationProgress(0);
+    updatePendingPromptCards(() => []);
+    settledPromptCardIdsRef.current.clear();
+    setDeferredSuggestedPrompt(null);
+    setSuggestionDialogOpen(false);
+    activePromptCardIdRef.current = null;
+    setFocusedPendingPromptCardId(null);
+    setEditingPendingPromptCardId(null);
+    setOpenPromptCardMenuId(null);
+    updateGenerationProgress(0);
     setFocusedPromptCardId(null);
     updateScrollTargetMessageId(null);
     promptRestoreUndoRef.current = null;
-    setDraftPrompt(initialPromptFor(storyPackage));
-    finishPromptSuggestionAnimation();
+    showSuggestedPrompt(initialPromptFor(storyPackage));
     setClips({});
     setVideoResult(null);
     setVisibleMessageCount(0);
     setStatus("idle");
-    setStatusText("故事已重启，模拟界面已清空");
+    setStatusText("故事已重新开始，模拟界面已清空");
   }
 
   function replayConversation() {
     setVideoResult(null);
     setFocusedPromptCardId(null);
+    setFocusedPendingPromptCardId(null);
+    setEditingPendingPromptCardId(null);
     updateScrollTargetMessageId(null);
     setStatus("done");
     setStatusText("聊天会话已重新播放入场");
@@ -918,7 +1794,6 @@ export default function App({ storyPackage }: AppProps) {
   }
 
   function choosePreviewMode(nextMode: PreviewMode) {
-    closeSettingsMenu();
     changePreviewMode(nextMode);
     if (nextMode === "video" && !project.messages.length) {
       setStatus("idle");
@@ -926,17 +1801,44 @@ export default function App({ storyPackage }: AppProps) {
     }
   }
 
+  function scrollConversationToBottom() {
+    if (revealTimerRef.current) {
+      window.clearInterval(revealTimerRef.current);
+      revealTimerRef.current = undefined;
+    }
+    setVideoResult(null);
+    setFocusedPromptCardId(null);
+    setFocusedPendingPromptCardId(null);
+    setEditingPendingPromptCardId(null);
+    updateScrollTargetMessageId(null);
+    setVisibleMessageCount(projectRef.current.messages.length);
+    changePreviewMode("wechat");
+
+    const exposeBottom = () => {
+      const chatScroll = rootRef.current?.querySelector<HTMLElement>(".wechat-chat-scroll");
+      if (!chatScroll?.isConnected) return;
+      chatScroll.scrollTo({
+        top: Math.max(0, chatScroll.scrollHeight - chatScroll.clientHeight),
+        behavior: "smooth"
+      });
+    };
+
+    window.requestAnimationFrame(exposeBottom);
+    window.setTimeout(exposeBottom, 140);
+    window.setTimeout(exposeBottom, 380);
+  }
+
   function focusPromptCard(card: PromptCard, options: { focusButton?: boolean } = {}) {
     const firstMessageId = card.messageIds[0];
     if (!firstMessageId) {
       setStatus("error");
-      setStatusText("这张故事卡片没有可定位的对话");
+      setStatusText("这张故事卡没有可定位的对话");
       return;
     }
     const targetIndex = project.messages.findIndex((message) => message.id === firstMessageId);
     if (targetIndex < 0) {
       setStatus("error");
-      setStatusText("没有找到这张故事卡片对应的起始对话");
+      setStatusText("没有找到这张故事卡对应的起始对话");
       return;
     }
     if (revealTimerRef.current) {
@@ -944,28 +1846,43 @@ export default function App({ storyPackage }: AppProps) {
       revealTimerRef.current = undefined;
     }
     setVideoResult(null);
+    setFocusedPendingPromptCardId(null);
+    setEditingPendingPromptCardId(null);
+    setOpenPromptCardMenuId(null);
     setFocusedPromptCardId(card.id);
     updateScrollTargetMessageId(firstMessageId);
     setVisibleMessageCount((current) => Math.max(current, targetIndex + 1));
     changePreviewMode("wechat");
     setStatus("done");
-    setStatusText("已定位到这张故事卡片的起始对话");
+    setStatusText("已定位到这张故事卡的起始对话");
     if (options.focusButton) {
       window.requestAnimationFrame(() => {
-        const targetButton = Array.from(rootRef.current?.querySelectorAll<HTMLButtonElement>("[data-prompt-card-id]") || [])
-          .find((button) => button.dataset.promptCardId === card.id);
-        targetButton?.focus({ preventScroll: true });
+        const targetCard = Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-prompt-card-id]") || [])
+          .find((element) => element.dataset.promptCardId === card.id);
+        targetCard?.focus({ preventScroll: true });
       });
     }
   }
 
-  function focusPromptCardByStep(direction: 1 | -1) {
-    if (!promptCards.length) return false;
-    const currentIndex = focusedPromptCardId ? promptCards.findIndex((card) => card.id === focusedPromptCardId) : -1;
+  function focusPromptCardByStep(directionToLatest: 1 | -1) {
+    const queuedItems = pendingPromptCards
+      .filter((card) => card.status === "queued")
+      .map((card) => ({ type: "pending" as const, id: card.id }))
+      .reverse();
+    const promptItems = [...promptCards].reverse().map((card) => ({ type: "prompt" as const, id: card.id, card }));
+    const navigationItems = [...queuedItems, ...promptItems];
+    if (!navigationItems.length) return false;
+    const currentIndex = focusedPendingPromptCardId
+      ? navigationItems.findIndex((item) => item.type === "pending" && item.id === focusedPendingPromptCardId)
+      : focusedPromptCardId
+        ? navigationItems.findIndex((item) => item.type === "prompt" && item.id === focusedPromptCardId)
+        : -1;
     const nextIndex = currentIndex < 0
-      ? direction > 0 ? 0 : promptCards.length - 1
-      : (currentIndex + direction + promptCards.length) % promptCards.length;
-    focusPromptCard(promptCards[nextIndex], { focusButton: true });
+      ? directionToLatest > 0 ? 0 : navigationItems.length - 1
+      : (currentIndex - directionToLatest + navigationItems.length) % navigationItems.length;
+    const nextItem = navigationItems[nextIndex];
+    if (nextItem.type === "pending") return selectPendingPromptCard(nextItem.id, { focusElement: true });
+    focusPromptCard(nextItem.card, { focusButton: true });
     return true;
   }
 
@@ -979,6 +1896,11 @@ export default function App({ storyPackage }: AppProps) {
   async function importJson(file: File | undefined) {
     if (!file) return;
     try {
+      generationRunRef.current += 1;
+      generationAbortRef.current?.abort();
+      generationAbortRef.current = null;
+      stopGenerationProgress();
+      clearPendingPromptRemovalTimers();
       const archive = parseStoryArchive(JSON.parse(await file.text()));
       const archivePackage: StoryPackage = isJojoProject(archive.project) ? "jojo" : "viral";
       if (archivePackage !== storyPackage) {
@@ -986,10 +1908,20 @@ export default function App({ storyPackage }: AppProps) {
         setStatusText(storyPackage === "jojo" ? "当前是 JOJO 版，请读取 JOJO 版存档" : "当前是网红短剧版，请读取网红短剧版存档");
         return;
       }
+      captureCurrentStoryLayoutSnapshot();
+      projectRef.current = archive.project;
+      promptCardsRef.current = archive.promptCards;
+      settledPromptCardIdsRef.current.clear();
+      completedPromptCardLayoutKeysRef.current.clear();
       setProject(archive.project);
       setPromptCards(archive.promptCards);
-      setPendingPromptCard(null);
-      setGenerationProgress(0);
+      updatePendingPromptCards(() => []);
+      setDeferredSuggestedPrompt(null);
+      setSuggestionDialogOpen(false);
+      activePromptCardIdRef.current = null;
+      setFocusedPendingPromptCardId(null);
+      setEditingPendingPromptCardId(null);
+      updateGenerationProgress(0);
       setFocusedPromptCardId(null);
       updateScrollTargetMessageId(null);
       promptRestoreUndoRef.current = null;
@@ -999,7 +1931,7 @@ export default function App({ storyPackage }: AppProps) {
       setClips({});
       setVideoResult(null);
       setStatus("done");
-      setStatusText(`已读档 ${archive.promptCards.length} 张故事卡片`);
+      setStatusText(`已读档 ${archive.promptCards.length} 张故事卡`);
     } catch (error) {
       handleError("读档", error);
     } finally {
@@ -1132,11 +2064,34 @@ export default function App({ storyPackage }: AppProps) {
 
   const switchLink = packageSwitchLink(storyPackage);
   const githubRepositoryUrl = import.meta.env.VITE_GITHUB_REPO_URL || defaultGithubRepositoryUrl;
-  const storyCardCount = promptCards.length + (pendingPromptCard ? 1 : 0);
+  const storyCardCount = promptCards.length + pendingPromptCards.length;
+  const canSubmitStory = Boolean(draftPrompt.trim());
+  const storyActionButtonClassName = [
+    "button button--full-width button--md button--primary story-action-button",
+    "story-action-button-visible",
+    canSubmitStory && status !== "loading" ? "story-action-button-ready" : ""
+  ].filter(Boolean).join(" ");
+
+  useEffect(() => {
+    if (status !== "loading" || !pendingPromptCards.length || queueProcessingRef.current) return;
+    void drainPromptQueue();
+  }, [pendingPromptCards.length, status]);
+  const deferredSuggestionText = deferredSuggestedPrompt?.trim() || "";
+  const promptTextareaShellClassName = [
+    "prompt-textarea-shell",
+    promptSuggestionActive ? "prompt-textarea-shell-animating" : "",
+    deferredSuggestionText ? "prompt-textarea-shell-has-suggestion" : ""
+  ].filter(Boolean).join(" ");
 
   useLayoutEffect(() => {
     if (!rootRef.current) return;
     const root = rootRef.current;
+    const panelVisibilityChanged = previousStoryPanelOpenRef.current !== storyPanelOpen;
+    const pendingPreviousSnapshot = pendingLeftPanelLayoutSnapshotRef.current;
+    if (storyLayoutSnapshotLockedRef.current && !pendingPreviousSnapshot) {
+      previousStoryPanelOpenRef.current = storyPanelOpen;
+      return;
+    }
     const targets = getLeftPanelLayoutTargets(root);
     gsap.killTweensOf(targets);
     targets.forEach((element) => {
@@ -1144,30 +2099,81 @@ export default function App({ storyPackage }: AppProps) {
     });
 
     const nextSnapshot = readLeftPanelLayoutSnapshot(root);
-    const previousSnapshot = leftPanelLayoutSnapshotRef.current;
+    const previousSnapshot = pendingPreviousSnapshot ?? leftPanelLayoutSnapshotRef.current;
     const shouldAnimate = previousSnapshot.size > 0
-      && window.matchMedia("(min-width: 1080px)").matches
+      && storyPanelOpen
       && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const shouldAnimatePanelVisibility = panelVisibilityChanged && window.matchMedia("(min-width: 1080px)").matches;
+    const shouldAnimateContentShift = !panelVisibilityChanged;
 
-    if (shouldAnimate) {
+    let didAnimateLayoutShift = false;
+    if (shouldAnimate && (shouldAnimatePanelVisibility || shouldAnimateContentShift)) {
       targets.forEach((element) => {
         const key = getLeftPanelLayoutKey(element);
         const previousRect = previousSnapshot.get(key);
         const nextRect = nextSnapshot.get(key);
         if (!previousRect || !nextRect) return;
-        const deltaX = previousRect.left - nextRect.left;
         const deltaY = previousRect.top - nextRect.top;
-        if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) return;
+        if (Math.abs(deltaY) < 0.5) return;
+        didAnimateLayoutShift = true;
         gsap.fromTo(
           element,
-          { x: deltaX, y: deltaY },
-          { x: 0, y: 0, duration: 0.46, ease: "power3.out", overwrite: "auto", clearProps: "transform" }
+          { y: deltaY },
+          { y: 0, duration: 0.46, ease: "power3.out", overwrite: "auto", clearProps: "transform" }
         );
       });
     }
 
     leftPanelLayoutSnapshotRef.current = nextSnapshot;
-  }, [storyCardCount, storyPanelOpen]);
+    pendingLeftPanelLayoutSnapshotRef.current = null;
+    previousStoryPanelOpenRef.current = storyPanelOpen;
+    if (storyLayoutUnlockTimerRef.current) {
+      window.clearTimeout(storyLayoutUnlockTimerRef.current);
+      storyLayoutUnlockTimerRef.current = undefined;
+    }
+    if (didAnimateLayoutShift) {
+      storyLayoutUnlockTimerRef.current = window.setTimeout(() => {
+        storyLayoutSnapshotLockedRef.current = false;
+        storyLayoutUnlockTimerRef.current = undefined;
+      }, 500);
+    } else {
+      storyLayoutSnapshotLockedRef.current = false;
+    }
+  }, [storyPanelOpen, pendingPromptCards, promptCards, editingPendingPromptCardId]);
+
+  useLayoutEffect(() => {
+    if (!rootRef.current) return;
+    const root = rootRef.current;
+    const targets = getPromptCardLayoutTargets(root);
+    gsap.killTweensOf(targets);
+    targets.forEach((element) => {
+      element.style.transform = "";
+    });
+
+    const nextSnapshot = readPromptCardLayoutSnapshot(root);
+    const previousSnapshot = pendingPromptCardLayoutSnapshotRef.current ?? promptCardLayoutSnapshotRef.current;
+    const shouldAnimate = previousSnapshot.size > 0
+      && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (shouldAnimate) {
+      targets.forEach((element) => {
+        const key = getPromptCardLayoutKey(element);
+        const previousRect = previousSnapshot.get(key);
+        const nextRect = nextSnapshot.get(key);
+        if (!previousRect || !nextRect) return;
+        const deltaY = previousRect.top - nextRect.top;
+        if (Math.abs(deltaY) < 0.5) return;
+        gsap.fromTo(
+          element,
+          { y: deltaY },
+          { y: 0, duration: 0.34, ease: "power3.out", overwrite: "auto", clearProps: "transform" }
+        );
+      });
+    }
+
+    promptCardLayoutSnapshotRef.current = nextSnapshot;
+    pendingPromptCardLayoutSnapshotRef.current = null;
+  }, [pendingPromptCards, promptCards, editingPendingPromptCardId]);
 
   useEffect(() => {
     const isTextEditingTarget = (target: EventTarget | null) => {
@@ -1180,6 +2186,9 @@ export default function App({ storyPackage }: AppProps) {
     const isButtonLikeTarget = (target: EventTarget | null) => (
       target instanceof Element && Boolean(target.closest("button,a,[role='button']"))
     );
+    const isPendingCardEditorTarget = (target: EventTarget | null) => (
+      target instanceof Element && Boolean(target.closest(".prompt-card-edit-textarea"))
+    );
     const handlePageShortcut = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       const key = event.key;
@@ -1191,14 +2200,33 @@ export default function App({ storyPackage }: AppProps) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
 
       if (key === "Enter") {
+        if (isPendingCardEditorTarget(event.target)) return;
+        if (!event.shiftKey && !isButtonLikeTarget(event.target) && editFocusedPendingPromptCard()) {
+          event.preventDefault();
+          return;
+        }
         if (event.shiftKey || isButtonLikeTarget(event.target)) return;
         event.preventDefault();
-        if (status !== "loading") void continueStory();
+        continueStory();
         return;
       }
 
       if (key === "Escape") {
-        if (status === "loading" && pendingPromptCard) {
+        if (openPromptCardMenuId) {
+          event.preventDefault();
+          setOpenPromptCardMenuId(null);
+          return;
+        }
+        if (cancelPendingPromptCardEdit()) {
+          event.preventDefault();
+          return;
+        }
+        if (suggestionDialogOpen) {
+          event.preventDefault();
+          setSuggestionDialogOpen(false);
+          return;
+        }
+        if (status === "loading" && pendingPromptCards.some((card) => card.status === "generating")) {
           event.preventDefault();
           stopStoryGeneration();
           return;
@@ -1210,26 +2238,31 @@ export default function App({ storyPackage }: AppProps) {
         return;
       }
 
+      if (key === "Delete" && !isTextEditingTarget(event.target) && removeFocusedPendingPromptCard()) {
+        event.preventDefault();
+        return;
+      }
+
       if (key === "Tab") {
-        if (!promptCards.length) return;
+        if (!promptCards.length && !pendingPromptCards.some((card) => card.status === "queued")) return;
         event.preventDefault();
         focusPromptCardByStep(event.shiftKey ? -1 : 1);
         return;
       }
 
-      const arrowDirection = key === "ArrowDown" || key === "ArrowRight"
+      const arrowDirection = key === "ArrowUp" || key === "ArrowLeft"
         ? 1
-        : key === "ArrowUp" || key === "ArrowLeft"
+        : key === "ArrowDown" || key === "ArrowRight"
           ? -1
           : 0;
-      if (!arrowDirection || !promptCards.length || isTextEditingTarget(event.target)) return;
+      if (!arrowDirection || isTextEditingTarget(event.target) || (!promptCards.length && !pendingPromptCards.some((card) => card.status === "queued"))) return;
       event.preventDefault();
       focusPromptCardByStep(arrowDirection);
     };
 
     window.addEventListener("keydown", handlePageShortcut);
     return () => window.removeEventListener("keydown", handlePageShortcut);
-  }, [draftPrompt, focusedPromptCardId, pendingPromptCard, promptCards, promptSuggestionActive, status]);
+  }, [draftPrompt, editingPendingPromptCardId, focusedPendingPromptCardId, focusedPromptCardId, openPromptCardMenuId, pendingPromptCards, promptCards, promptSuggestionActive, status, suggestionDialogOpen]);
 
   return (
     <div ref={rootRef} className={`app-shell dark ${storyPackage === "jojo" ? "app-shell-jojo" : ""}`} data-theme="dark" data-vibrant-palette="true">
@@ -1249,28 +2282,28 @@ export default function App({ storyPackage }: AppProps) {
             </button>
             {settingsMenuOpen ? (
               <div className="title-menu-popover" role="menu">
-                <button
-                  className={previewMode === "wechat" ? "title-menu-item title-menu-item-active" : "title-menu-item"}
-                  type="button"
-                  role="menuitem"
-                  aria-pressed={previewMode === "wechat"}
-                  onClick={() => choosePreviewMode("wechat")}
-                >
-                  <Smartphone size={16} />
-                  <span>界面版</span>
-                  <small>{previewMode === "wechat" ? "当前" : "快速生成"}</small>
-                </button>
-                <button
-                  className={previewMode === "video" ? "title-menu-item title-menu-item-active" : "title-menu-item"}
-                  type="button"
-                  role="menuitem"
-                  aria-pressed={previewMode === "video"}
-                  onClick={() => choosePreviewMode("video")}
-                >
-                  <Video size={16} />
-                  <span>视频版</span>
-                  <small>{previewMode === "video" ? "当前" : "直接播放"}</small>
-                </button>
+                <div className="title-menu-tabs" role="tablist" aria-label="预览模式">
+                  <button
+                    className={previewMode === "wechat" ? "title-menu-tab title-menu-tab-active" : "title-menu-tab"}
+                    type="button"
+                    role="tab"
+                    aria-selected={previewMode === "wechat"}
+                    onClick={() => choosePreviewMode("wechat")}
+                  >
+                    <Smartphone size={15} />
+                    <span>界面版</span>
+                  </button>
+                  <button
+                    className={previewMode === "video" ? "title-menu-tab title-menu-tab-active" : "title-menu-tab"}
+                    type="button"
+                    role="tab"
+                    aria-selected={previewMode === "video"}
+                    onClick={() => choosePreviewMode("video")}
+                  >
+                    <Video size={15} />
+                    <span>视频版</span>
+                  </button>
+                </div>
                 <a className="title-menu-item" role="menuitem" href={switchLink.href} onClick={closeSettingsMenu}>
                   <ArrowUpRight size={16} />
                   <span>{switchLink.label}</span>
@@ -1334,7 +2367,7 @@ export default function App({ storyPackage }: AppProps) {
               <span className="story-panel-status-icon" aria-hidden="true">
                 {storyPanelOpen ? <ChevronDown size={16} /> : <PenLine size={16} />}
               </span>
-              <small>{storyCardCount ? `${storyCardCount} 张故事卡片` : "准备生成"}</small>
+              <small>{storyCardCount ? `${storyCardCount} 张故事卡` : "准备生成"}</small>
             </button>
             <Card className="surface-card story-composer-card motion-in" style={jojoMode ? jojoGlassCardStyle : undefined}>
               <CardHeader className="card-header">
@@ -1344,14 +2377,14 @@ export default function App({ storyPackage }: AppProps) {
                 </div>
               </CardHeader>
               <CardContent className="card-content">
-                <div className={promptSuggestionActive ? "prompt-textarea-shell prompt-textarea-shell-animating" : "prompt-textarea-shell"}>
+                <div className={promptTextareaShellClassName}>
                   <textarea
                     ref={promptTextareaRef}
                     className="hero-textarea prompt-textarea"
                     value={draftPrompt}
                     onChange={(event) => handleDraftPromptChange(event.target.value)}
                     onFocus={handlePromptTextareaFocus}
-                    placeholder="输入下一段要推进的剧情。它会结合此前故事卡片和现有对话继续往后写。"
+                    placeholder="输入下一段要推进的剧情。它会结合此前故事卡和现有对话继续往后写。"
                     rows={5}
                   />
                   {promptSuggestionActive ? (
@@ -1361,71 +2394,112 @@ export default function App({ storyPackage }: AppProps) {
                       </span>
                     </div>
                   ) : null}
+                  {deferredSuggestionText ? (
+                    <button
+                      className="prompt-suggestion-trigger"
+                      type="button"
+                      aria-label="查看建议提示词"
+                      aria-expanded={suggestionDialogOpen}
+                      onClick={() => setSuggestionDialogOpen(true)}
+                    >
+                      <Lightbulb size={16} />
+                    </button>
+                  ) : null}
+                  {deferredSuggestionText && suggestionDialogOpen ? (
+                    <div className="prompt-suggestion-popover" role="dialog" aria-label="建议提示词">
+                      <div className="prompt-suggestion-popover-header">
+                        <strong>建议提示词</strong>
+                        <button type="button" onClick={dismissDeferredSuggestion} aria-label="关闭建议提示词">
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <p>{deferredSuggestionText}</p>
+                      <div className="prompt-suggestion-popover-actions">
+                        <button type="button" className="prompt-suggestion-secondary" onClick={dismissDeferredSuggestion}>
+                          关闭
+                        </button>
+                        <button type="button" className="prompt-suggestion-primary" onClick={adoptDeferredSuggestion}>
+                          采用
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-                <Button
-                  className="story-action-button"
-                  fullWidth
-                  variant="primary"
-                  onPress={continueStory}
-                  isDisabled={status === "loading"}
+                <button
+                  className={storyActionButtonClassName}
+                  type="button"
+                  onClick={continueStory}
+                  disabled={!canSubmitStory}
                 >
-                  {status === "loading" ? <Hourglass className="hourglass-spin" size={17} /> : <MessageSquarePlus size={17} />}
-                  {status === "loading" ? "生成中" : "开始编"}
-                </Button>
-                <Button className="prompt-reset-button" fullWidth variant="secondary" onPress={clearLine} isDisabled={status === "loading"}>
-                  <RefreshCcw size={16} />
-                  重启故事
-                </Button>
-                {status === "error" ? (
-                  <div className="deepseek-status deepseek-status-error" title={statusText}>
-                    {compactStatusText(statusText)}
-                  </div>
-                ) : null}
+                  {status === "loading" ? <MessageSquarePlus size={17} /> : <MessageSquarePlus size={17} />}
+                  {status === "loading" ? "加入队列" : "开始编"}
+                </button>
               </CardContent>
             </Card>
 
             {storyCardCount ? (
-              <Card className="surface-card prompt-history-card motion-in" style={jojoMode ? jojoGlassCardStyle : undefined}>
-                <CardHeader className="card-header prompt-history-header">
+              <section className="prompt-history-card motion-in" aria-label="故事卡">
+                <div className="card-header prompt-history-header">
                   <div className="panel-title">
                     <Save size={18} />
-                    故事卡片
+                    故事卡
                   </div>
-                </CardHeader>
-                <CardContent className="card-content prompt-card-list">
-                  {pendingPromptCard ? (
+                </div>
+                <div className="card-content prompt-card-list">
+                  {pendingPromptCards.map((card, index) => ({
+                    card,
+                    cardNumber: card.completedCardNumber ?? promptCards.length + index + 1
+                  })).reverse().map(({ card, cardNumber }) => (
                     <PendingPromptCardView
-                      prompt={pendingPromptCard.prompt}
-                      progress={generationProgress}
+                      key={card.id}
+                      cardId={card.id}
+                      prompt={card.prompt}
+                      progress={card.status === "generating" ? generationProgress : 0}
+                      status={card.status}
+                      queuePosition={cardNumber}
                       onEdit={stopStoryGeneration}
+                      onUpdate={card.status === "queued" ? (nextPrompt) => updateQueuedPromptCard(card.id, nextPrompt) : undefined}
+                      onRemove={card.status === "queued" ? () => removeQueuedPromptCard(card.id) : undefined}
+                      onJumpToBottom={scrollConversationToBottom}
+                      onSelect={card.status === "queued" ? () => selectPendingPromptCard(card.id) : undefined}
+                      onStartEdit={card.status === "queued" ? () => startPendingPromptCardEdit(card.id) : undefined}
+                      onCancelEdit={card.status === "queued" ? cancelPendingPromptCardEdit : undefined}
+                      isSelected={focusedPendingPromptCardId === card.id}
+                      isEditing={editingPendingPromptCardId === card.id}
                       style={jojoMode ? jojoPromptCardGlassStyle : undefined}
                     />
-                  ) : null}
+                  ))}
                   {[...promptCards].reverse().map((card, index) => {
                     const cardNumber = promptCards.length - index;
+                    const isCompletingFromPending = settledPromptCardIdsRef.current.has(card.id);
                     return (
-                      <button
+                      <StoryPromptCardView
                         key={card.id}
-                        className={focusedPromptCardId === card.id ? "prompt-card prompt-card-button prompt-card-active" : "prompt-card prompt-card-button"}
+                        card={card}
+                        cardNumber={cardNumber}
+                        isSelected={focusedPromptCardId === card.id}
+                        isCompletingFromPending={isCompletingFromPending}
+                        isMenuOpen={openPromptCardMenuId === card.id}
+                        layoutKey={completedPromptCardLayoutKeysRef.current.get(card.id) ?? `prompt-${card.id}`}
                         style={jojoMode ? jojoPromptCardGlassStyle : undefined}
-                        type="button"
-                        data-prompt-card-id={card.id}
-                        aria-pressed={focusedPromptCardId === card.id}
-                        aria-label={`定位到第 ${cardNumber} 张故事卡片`}
-                        onClick={() => focusPromptCard(card)}
-                      >
-                        <div className="prompt-card-index">{String(cardNumber).padStart(2, "0")}</div>
-                        <p>{card.prompt}</p>
-                      </button>
+                        onFocusCard={() => focusPromptCard(card)}
+                        onToggleMenu={() => setOpenPromptCardMenuId((current) => current === card.id ? null : card.id)}
+                        onRestartFromHere={() => restartFromPromptCard(card)}
+                        onCopyPrompt={() => void copyPromptCardText(card)}
+                      />
                     );
                   })}
-                </CardContent>
-              </Card>
+                  <Button className="prompt-reset-button prompt-history-reset-button" fullWidth variant="secondary" onPress={clearLine}>
+                    <RefreshCcw size={16} />
+                    重新开始
+                  </Button>
+                </div>
+              </section>
             ) : null}
           </div>
         </div>
 
-        <ScrollShadow className="right-panel panel-scroll">
+        <div className="right-panel panel-scroll">
           <Card className="surface-card preview-wrap preview-tilt-target motion-in">
             <CardContent className="card-content">
               <div className={`preview-content-stage ${previewTransition ? `preview-content-stage-${previewTransition.direction}` : ""}`}>
@@ -1440,7 +2514,7 @@ export default function App({ storyPackage }: AppProps) {
               </div>
             </CardContent>
           </Card>
-        </ScrollShadow>
+        </div>
       </main>
     </div>
   );

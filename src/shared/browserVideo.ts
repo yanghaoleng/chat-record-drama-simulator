@@ -1,5 +1,6 @@
 import { getCharacter, messageVoiceText, type ChatMessage, type DramaProject } from "./schema";
 import { imageNarrativeCopy, imageSourceForMessage } from "./imageNarrative";
+import { jojoCssMemeCardForMessage, type JojoCssMemeCard, type JojoCssMemeTone } from "./jojoMemeCards";
 import { isJojoProject } from "./jojoProject";
 import { resolvePublicAssetPath } from "./publicPath";
 import { buildTimeline, getDurationInFrames, getScrollY, type TimelineEntry } from "./timing";
@@ -248,12 +249,73 @@ function drawImageCard(ctx: CanvasRenderingContext2D, project: DramaProject, mes
   return { width: 700, height: 430 };
 }
 
+const jojoMemeToneColors: Record<JojoCssMemeTone, { top: string; accent: string; ink: string }> = {
+  jiaojiao: { top: "#c9f3ff", accent: "#7ddcff", ink: "#13233a" },
+  lingdang: { top: "#c9f3ff", accent: "#7ddcff", ink: "#13233a" },
+  zhuxiaodi: { top: "#c9f3ff", accent: "#7ddcff", ink: "#13233a" },
+  xitong: { top: "#c9f3ff", accent: "#7ddcff", ink: "#13233a" },
+  meeting: { top: "#c9f3ff", accent: "#7ddcff", ink: "#13233a" }
+};
+
+function drawJojoCssMemeCard(ctx: CanvasRenderingContext2D, card: JojoCssMemeCard, x: number, y: number) {
+  const colors = jojoMemeToneColors[card.tone];
+  const width = 250;
+  const height = 250;
+  ctx.save();
+  roundRect(ctx, x, y, width, height, 32);
+  ctx.clip();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(x, y, width, height);
+
+  const topGradient = ctx.createLinearGradient(x, y, x + width, y + 106);
+  topGradient.addColorStop(0, colors.top);
+  topGradient.addColorStop(1, colors.accent);
+  ctx.fillStyle = topGradient;
+  ctx.fillRect(x, y, width, 104);
+
+  ctx.fillStyle = "#eef6ff";
+  ctx.strokeStyle = "#d6e7f8";
+  ctx.lineWidth = 3;
+  roundRect(ctx, x + 26, y + 150, width - 52, 84, 24);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#ffffff";
+  roundRect(ctx, x + 61, y + 40, 128, 128, 36);
+  ctx.fill();
+  const markGradient = ctx.createLinearGradient(x + 61, y + 40, x + 189, y + 168);
+  markGradient.addColorStop(0, "#f8fdff");
+  markGradient.addColorStop(1, "#dcf6ff");
+  ctx.fillStyle = markGradient;
+  roundRect(ctx, x + 69, y + 48, 112, 112, 30);
+  ctx.fill();
+
+  ctx.fillStyle = colors.ink;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = "700 98px Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, PingFang SC, Microsoft YaHei, sans-serif";
+  ctx.fillStyle = "#1a75bc";
+  ctx.fillText(card.mark, x + width / 2, y + 104);
+  ctx.fillStyle = colors.ink;
+  ctx.font = "850 29px PingFang SC, Microsoft YaHei, sans-serif";
+  ctx.fillText(card.title, x + width / 2, y + 186);
+  ctx.fillStyle = "#60768b";
+  ctx.font = "500 23px PingFang SC, Microsoft YaHei, sans-serif";
+  ctx.fillText(card.subtitle, x + width / 2, y + 222);
+  ctx.restore();
+}
+
 function drawMeme(ctx: CanvasRenderingContext2D, message: ChatMessage, x: number, y: number, imageCache: ImageCache) {
   ctx.fillStyle = "#ffffff";
   roundRect(ctx, x, y, 520, 360, 10);
   ctx.fill();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  const cssCard = jojoCssMemeCardForMessage(message);
+  if (cssCard) {
+    drawJojoCssMemeCard(ctx, cssCard, x + 135, y + 48);
+    return { width: 520, height: 360 };
+  }
   const image = imageCache.media.get(message.id);
   if (image) {
     try {

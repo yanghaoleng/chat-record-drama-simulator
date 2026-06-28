@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { sendJson } from "./_http";
+import { sendJson } from "./_http.js";
 
 export default function handler(request: IncomingMessage, response: ServerResponse) {
   if (request.method !== "GET") {

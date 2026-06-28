@@ -1,4 +1,5 @@
 import type { ChatMessage, DramaProject } from "./schema";
+import { isJojoCssMemeAssetId } from "./jojoMemeCards";
 import { localMemeAssets } from "./memeLibrary";
 
 const genericImagePattern = /^(关键|重要)?\s*(证据|照片|图片|截图|图|旧照|旧照片|聊天图片|照片线索|图片线索|关键线索|证据照片)\s*[。.!！?？]*$/;
@@ -36,6 +37,7 @@ export function imageHintFromContext(context: string) {
 }
 
 export function imageSourceForMessage(project: DramaProject, message: ChatMessage): string | undefined {
+  if (isJojoCssMemeAssetId(message.assetId)) return undefined;
   const asset = message.assetId ? project.assets.find((item) => item.id === message.assetId) : undefined;
   const localMeme = message.assetId ? localMemeAssets.find((item) => item.id === message.assetId) : undefined;
   return message.imageUrl || asset?.remoteUrl || asset?.localPath || localMeme?.localPath;

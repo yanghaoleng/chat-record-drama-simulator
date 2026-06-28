@@ -37,6 +37,7 @@ export type DeepSeekSegmentResult = {
   card: PromptCard;
   messages: ChatMessage[];
   project: DramaProject;
+  suggestedPrompt?: string;
   provider?: {
     source?: DeepSeekCompletionConfig["source"];
     label?: string;
@@ -45,7 +46,7 @@ export type DeepSeekSegmentResult = {
   };
 };
 
-const DEEPSEEK_V4_FLASH_MODEL = "deepseek-v4-flash";
+const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
 
 const storyBeats = [
   "3句内进入冲突",
@@ -81,6 +82,16 @@ function cleanBaseUrl(value: string) {
   return (value || "https://api.deepseek.com").replace(/\/+$/, "");
 }
 
+function suggestedPromptFromDeepSeekJson(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of ["suggestedPrompt", "nextPrompt", "followUpPrompt", "continuePrompt"]) {
+    const next = record[key];
+    if (typeof next === "string" && next.trim()) return next.trim();
+  }
+  return undefined;
+}
+
 function cleanProviderConfig(
   value: BrowserDeepSeekProviderConfig | undefined,
   fallback: BrowserDeepSeekProviderConfig,
@@ -90,7 +101,7 @@ function cleanProviderConfig(
   return {
     apiKey: (value?.apiKey || fallback.apiKey || "").trim(),
     baseUrl: cleanBaseUrl(value?.baseUrl || fallback.baseUrl || "https://api.deepseek.com"),
-    model: DEEPSEEK_V4_FLASH_MODEL,
+    model: (value?.model || fallback.model || DEFAULT_DEEPSEEK_MODEL).trim(),
     source,
     label
   };
@@ -330,6 +341,7 @@ function systemPrompt(project: DramaProject) {
       "transfer 很少出现：平均 3-5 段最多 1 段；本段最多 1 条；只有当前 Prompt 明确涉及会议室费、报销、垫付、早餐、车费、发票等公司费用时才用，否则用普通 text 推进。",
       "每条消息都要带 emotion、sendSfx、pauseMs、holdMs，sendSfx 只能是 none/send/image/transfer/meme。",
       "输出结构必须匹配 DramaProject：id,title,brief,stylePreset,fps,canvas,characters,assets,messages,sfx,audioMix。",
+      "可以在 JSON 顶层额外输出 suggestedPrompt，作为下一轮可选提示词；没有自然建议就不要输出或留空。",
       "stylePreset 必须是 jojo-company-chat；assets 必须是数组；messages 必须是数组；sfx 必须是对象。"
     ].join("\n");
   }
@@ -357,6 +369,7 @@ function systemPrompt(project: DramaProject) {
     "每条消息都要带 emotion、sendSfx、pauseMs、holdMs，sendSfx 只能是 none/send/image/transfer/meme。",
     "角色必须是两个：右侧男主、左侧女主；语音描述要利于 TTS 表演。",
     "输出结构必须匹配 DramaProject：id,title,brief,stylePreset,fps,canvas,characters,assets,messages,sfx,audioMix。",
+    "可以在 JSON 顶层额外输出 suggestedPrompt，作为下一轮可选提示词；没有自然建议就不要输出或留空。",
     "assets 必须是数组；messages 必须是数组；sfx 必须是对象，不要输出数组。"
   ].join("\n");
 }
@@ -442,7 +455,7 @@ export async function generateDeepSeekStorySegmentWithConfig({
   const normalizedConfig = {
     apiKey: config.apiKey.trim(),
     baseUrl: cleanBaseUrl(config.baseUrl),
-    model: DEEPSEEK_V4_FLASH_MODEL,
+    model: config.model.trim() || DEFAULT_DEEPSEEK_MODEL,
     source: config.source,
     label: config.label
   };
@@ -490,17 +503,21 @@ export async function generateDeepSeekStorySegmentWithConfig({
     const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const content = json.choices?.[0]?.message?.content;
     if (!content) throw new Error("DeepSeek 响应没有 content");
-    return normalizeDeepSeekProject(extractJson(content), request);
+    const extracted = extractJson(content);
+    return {
+      project: normalizeDeepSeekProject(extracted, request),
+      suggestedPrompt: suggestedPromptFromDeepSeekJson(extracted)
+    };
   }
 
   let generated = await fetchGeneratedProject(0);
-  for (let repairAttempt = 1; repairAttempt <= 2 && isLowQualitySegment(generated.messages); repairAttempt += 1) {
+  for (let repairAttempt = 1; repairAttempt <= 2 && isLowQualitySegment(generated.project.messages); repairAttempt += 1) {
     console.warn(`[${logLabel}] low-quality opening; retrying with repair prompt`, { repairAttempt });
     generated = await fetchGeneratedProject(repairAttempt);
   }
   const baseCharacters = project.characters;
   const cardId = makeId("prompt");
-  const normalizedMessages = removeDuplicateMessages(generated.messages)
+  const normalizedMessages = removeDuplicateMessages(generated.project.messages)
     .map((message, index) => ({
       ...message,
       id: makeId("msg"),
@@ -520,19 +537,20 @@ export async function generateDeepSeekStorySegmentWithConfig({
 
   const nextProject = parseProject({
     ...project,
-    title: nextProjectTitle(project, generated),
+    title: nextProjectTitle(project, generated.project),
     brief: request.brief,
     characters: baseCharacters,
-    assets: mergeAssets(project, generated),
+    assets: mergeAssets(project, generated.project),
     messages: [...project.messages, ...messages],
-    sfx: { ...project.sfx, ...generated.sfx },
-    audioMix: { ...project.audioMix, ...generated.audioMix }
+    sfx: { ...project.sfx, ...generated.project.sfx },
+    audioMix: { ...project.audioMix, ...generated.project.audioMix }
   });
 
   return {
     card,
     messages,
     project: nextProject,
+    ...(generated.suggestedPrompt ? { suggestedPrompt: generated.suggestedPrompt } : {}),
     provider: {
       source: normalizedConfig.source,
       label: normalizedConfig.label,

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { DATA_DIR, SETTINGS_PATH } from "./paths";
 
 const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com";
-const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
+const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
 
 const storedDeepSeekSchema = z.object({
   apiKey: z.string().optional(),

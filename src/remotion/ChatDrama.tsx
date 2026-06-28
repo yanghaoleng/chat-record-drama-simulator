@@ -1,5 +1,6 @@
 import { AbsoluteFill, Audio, Img, Sequence, interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import { imageNarrativeCopy, imageSourceForMessage } from "../shared/imageNarrative";
+import { jojoCssMemeCardForMessage, type JojoCssMemeCard } from "../shared/jojoMemeCards";
 import { isJojoProject } from "../shared/jojoProject";
 import { resolvePublicAssetPath } from "../shared/publicPath";
 import { getCharacter, type ChatMessage, type DramaProject } from "../shared/schema";
@@ -82,13 +83,26 @@ function ImageBubble({ project, message }: { project: DramaProject; message: Cha
   );
 }
 
+function JojoCssMemeCardView({ card }: { card: JojoCssMemeCard }) {
+  return (
+    <div className={`jojo-render-meme jojo-render-meme-${card.tone}`}>
+      <div className="jojo-render-meme-mark" aria-hidden="true">
+        <span>{card.mark}</span>
+      </div>
+      <strong>{card.title}</strong>
+      <small>{card.subtitle}</small>
+    </div>
+  );
+}
+
 function MemeBubble({ project, message }: { project: DramaProject; message: ChatMessage }) {
-  const src = resolvePublicAssetPath(imageSourceForMessage(project, message));
+  const cssCard = jojoCssMemeCardForMessage(message);
+  const src = cssCard ? undefined : resolvePublicAssetPath(imageSourceForMessage(project, message));
 
   return (
-    <div className="meme-card">
-      {src ? <Img src={src} className="meme-image" /> : <div className="meme-text">表情</div>}
-      {message.text ? <div className="meme-caption">{message.text}</div> : null}
+    <div className={cssCard ? "meme-card meme-card-css" : "meme-card"}>
+      {cssCard ? <JojoCssMemeCardView card={cssCard} /> : src ? <Img src={src} className="meme-image" /> : <div className="meme-text">表情</div>}
+      {!cssCard && message.text ? <div className="meme-caption">{message.text}</div> : null}
     </div>
   );
 }

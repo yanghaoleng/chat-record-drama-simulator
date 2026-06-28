@@ -13,13 +13,22 @@ function parsePromptCard(value: unknown): PromptCard {
     prompt: card.prompt,
     createdAt: card.createdAt,
     messageIds: card.messageIds,
-    summary: card.summary
+    summary: card.summary,
+    ...(typeof card.suggestedPrompt === "string" && card.suggestedPrompt.trim() ? { suggestedPrompt: card.suggestedPrompt.trim() } : {})
   };
 }
 
 function parseMessages(value: unknown): ChatMessage[] {
   if (!Array.isArray(value)) throw new Error("后端返回的消息列表无效");
   return value as ChatMessage[];
+}
+
+function parseSuggestedPrompt(value: Partial<DeepSeekSegmentResult> & Record<string, unknown>) {
+  for (const key of ["suggestedPrompt", "nextPrompt", "followUpPrompt", "continuePrompt"]) {
+    const next = value[key];
+    if (typeof next === "string" && next.trim()) return next.trim();
+  }
+  return undefined;
 }
 
 async function readError(response: Response) {
@@ -56,9 +65,11 @@ export async function generateBackendStorySegment({
   }
 
   const json = await response.json() as Partial<DeepSeekSegmentResult>;
+  const suggestedPrompt = parseSuggestedPrompt(json);
   return {
     card: parsePromptCard(json.card),
     messages: parseMessages(json.messages),
-    project: parseProject(json.project)
+    project: parseProject(json.project),
+    ...(suggestedPrompt ? { suggestedPrompt } : {})
   };
 }

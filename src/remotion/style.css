@@ -262,6 +262,104 @@
   image-rendering: auto;
 }
 
+.meme-card-css {
+  padding: 34px;
+}
+
+.jojo-render-meme {
+  --jojo-meme-top: #c9f3ff;
+  --jojo-meme-accent: #7ddcff;
+  --jojo-meme-ink: #13233a;
+  position: relative;
+  display: block;
+  width: 270px;
+  height: 270px;
+  overflow: hidden;
+  border: 3px solid #d7e7f7;
+  border-radius: 34px;
+  background: #ffffff;
+  box-shadow: 0 18px 34px rgba(27, 74, 118, 0.14);
+}
+
+.jojo-render-meme::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 106px;
+  background: linear-gradient(135deg, var(--jojo-meme-top), var(--jojo-meme-accent));
+  content: "";
+}
+
+.jojo-render-meme::after {
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  bottom: 22px;
+  height: 98px;
+  border: 3px solid #d6e7f8;
+  border-radius: 26px;
+  background: #f0f9ff;
+  content: "";
+}
+
+.jojo-render-meme-mark {
+  position: absolute;
+  top: 40px;
+  left: 50%;
+  z-index: 2;
+  box-sizing: border-box;
+  display: grid;
+  width: 128px;
+  height: 128px;
+  place-items: center;
+  border: 8px solid #ffffff;
+  border-radius: 36px;
+  background: linear-gradient(180deg, #f8fdff 0%, #dcf6ff 100%);
+  box-shadow: 0 12px 24px rgba(17, 72, 126, 0.16);
+  transform: translateX(-50%);
+}
+
+.jojo-render-meme-mark span {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: #1a75bc;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", PingFang SC, Microsoft YaHei, sans-serif;
+  font-size: 101px;
+  font-weight: 700;
+  line-height: 0.9;
+  transform: translateY(-2px);
+}
+
+.jojo-render-meme strong,
+.jojo-render-meme small {
+  position: absolute;
+  left: 32px;
+  right: 32px;
+  z-index: 2;
+  display: block;
+  overflow: hidden;
+  color: var(--jojo-meme-ink);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jojo-render-meme strong {
+  top: 178px;
+  font-size: 32px;
+  font-weight: 850;
+  line-height: 42px;
+}
+
+.jojo-render-meme small {
+  top: 220px;
+  color: #60768b;
+  font-size: 26px;
+  line-height: 34px;
+}
+
 .meme-text {
   font-size: 72px;
   font-weight: 800;

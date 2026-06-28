@@ -21,7 +21,7 @@ cp .env.example .env
 npm run dev
 ```
 
-打开 `http://127.0.0.1:5173`。默认只启动 Vite 静态前端；没有后端时 DeepSeek 会退回本地规则续写。
+打开 `http://127.0.0.1:5173`。默认只启动 Vite 静态前端；“编故事”需要后端代理或浏览器公开配置才能调用 DeepSeek。
 
 公司内网使用推荐：
 
@@ -36,7 +36,7 @@ npm run build
 npm run preview
 ```
 
-`npm run build` 会生成两套互不链接的静态产物：`dist/jojo` 和 `dist/viral`。`npm run preview` 默认预览 JOJO 版静态包，地址为 `http://127.0.0.1:4173/`，不包含后端 API。
+`npm run build` 会生成两套互不链接的静态产物：`dist/jojo` 和 `dist/viral`。`npm run preview` 默认启动带后端 API 的 JOJO 版生产预览，地址为 `http://127.0.0.1:4173/`。
 
 部署到 `jojodemos.mikeywa.icu/ququ` 使用：
 
@@ -53,7 +53,7 @@ npm run preview:jojo
 npm run preview:viral
 ```
 
-默认地址为 `http://127.0.0.1:8787/`。内网预览 JOJO 版使用：
+JOJO 版默认地址为 `http://127.0.0.1:4173/`，网红版默认地址为 `http://127.0.0.1:4174/`。只看静态包可用 `npm run preview:static`。内网预览 JOJO 版使用：
 
 ```bash
 npm run preview:lan
@@ -70,14 +70,14 @@ npm run preview:lan
 ## 模型配置
 
 - 后端默认地址：`https://api.deepseek.com`。
-- 后端默认模型：`deepseek-v4-flash`。
+- 后端默认模型：`deepseek-chat`。
 - 公开仓库不保存任何真实 token；本地请复制 `.env.example` 为 `.env` 后填写 `DEEPSEEK_API_KEY`。
 - Vercel 部署应把 `DEEPSEEK_API_KEY` 放在项目 Environment Variables 中，让 `/api/story/continue` 在服务端代请求 DeepSeek。
 - `VITE_DEEPSEEK_API_KEY` 只用于纯静态、浏览器直连模式；任何 `VITE_*` 变量都会进入前端 bundle，不建议放真实私有 key。
 - 如需临时覆盖，可设置 `DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`、`VITE_GITHUB_REPO_URL` 环境变量。
 - 旧的 `data/settings.json` 保存配置默认不覆盖环境变量；只有设置 `USE_SAVED_DEEPSEEK_SETTINGS=1` 才启用。
 
-如果没有后端、未配置 token 或模型请求失败，工具会使用本地规则续写。Edge TTS 在浏览器端直连微软语音服务；如果当前浏览器或网络策略拦截 WebSocket，会在页面状态和控制台里报错。
+如果没有后端、未配置 token 或模型请求失败，“编故事”会停止并提示 DeepSeek 错误，不再自动使用本地固定套路兜底。Edge TTS 在浏览器端直连微软语音服务；如果当前浏览器或网络策略拦截 WebSocket，会在页面状态和控制台里报错。
 
 ## 线性存档
 
@@ -93,7 +93,7 @@ npm run preview:lan
 - “重启故事”会清空当前信息流气泡和故事卡片，但保留手机壳、顶栏和底栏，不再恢复默认内置剧情。
 - 支持读档、存档线性 JSON。
 - 支持 Edge TTS 生成男女声语音，并在浏览器内导出视频。
-- JOJO 版自动调用固定头像、真实办公室局部照片、头像表情卡，不让用户手动选择头像或场景。
+- JOJO 版自动调用固定头像、真实办公室局部照片、CSS 表情卡，不让用户手动选择头像或场景。
 
 ## API
 
@@ -113,7 +113,7 @@ npm run preview:lan
 - 构建：`STORY_PACKAGE=jojo|viral` 注入 `__APP_STORY_PACKAGE__`，分别输出 `dist/jojo`、`dist/viral`；`build:ququ` 输出可部署到 `/ququ/` 的 `dist/ququ`。
 - 预览与渲染：Remotion Player + 浏览器录制导出。
 - 剧情数据：`src/shared/schema.ts` 定义项目、角色、消息类型。
-- 生成逻辑：全栈模式优先走后端公司中转；后端不可用时尝试浏览器直连；都不可用时走本地规则续写。
+- 生成逻辑：全栈模式优先走后端 DeepSeek 代理；后端不可用时尝试浏览器公开配置；都不可用时停止并提示错误。
 - JOJO 资源：`assets/avatar-jojo` 为头像源；`public/avatars/jojo`、`public/dingtalk-ui`、`public/jojo-assets` 为运行时静态资源。
 - 静态资源：微信/钉钉 UI、音频、表情、渲染产物分别放在 `public/`、`data/`、`assets/`、`renders/`。
 - 聊天预览顶部和底部使用 Figma 导出的整图：微信 `public/wechat-ui`，钉钉 `public/dingtalk-ui`。

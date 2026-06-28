@@ -12,6 +12,7 @@ export type PromptCard = {
   createdAt: string;
   messageIds: string[];
   summary: string;
+  suggestedPrompt?: string;
 };
 
 export type StoryArchive = {
