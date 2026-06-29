@@ -1723,9 +1723,32 @@ export default function App({ storyPackage }: AppProps) {
     return removeCompletedPromptCard(targetCard);
   }
 
+  function applyCachedInitialPresetSegment(prompt: string) {
+    const archive = initialPresetArchiveRef.current;
+    const cachedFirstSegment = archive?.cachedFirstSegment;
+    if (!archive || !cachedFirstSegment) return false;
+    if (projectRef.current.messages.length || promptCardsRef.current.length || pendingPromptCardsRef.current.length) return false;
+    if (prompt.trim() !== archive.preset.prompt.trim()) return false;
+
+    promptRestoreUndoRef.current = null;
+    finishPromptSuggestionAnimation();
+    setDeferredSuggestedPrompt(null);
+    setSuggestionDialogOpen(false);
+    draftPromptRef.current = "";
+    setDraftPrompt("");
+    setVideoProgress(0);
+    updateGenerationProgress(0);
+    applyStorySegment(cachedFirstSegment, `已载入预设开场 ${cachedFirstSegment.messages.length} 条消息`, {
+      baseProject: projectRef.current,
+      basePromptCards: []
+    });
+    return true;
+  }
+
   function continueStory() {
     const prompt = draftPrompt.trim();
     if (!prompt) return;
+    if (applyCachedInitialPresetSegment(prompt)) return;
     promptRestoreUndoRef.current = null;
     finishPromptSuggestionAnimation();
     setDeferredSuggestedPrompt(null);
