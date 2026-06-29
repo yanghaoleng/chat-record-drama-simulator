@@ -690,7 +690,7 @@ export default function App({ storyPackage }: AppProps) {
   const [videoResult, setVideoResult] = useState<VideoExportResult | null>(null);
   const [videoProgress, setVideoProgress] = useState(0);
   const [visibleMessageCount, setVisibleMessageCount] = useState(0);
-  const [storyPanelOpen, setStoryPanelOpen] = useState(true);
+  const [storyPanelOpen, setStoryPanelOpen] = useState(() => !shouldUseStoryModal());
   const [previewTransition, setPreviewTransition] = useState<PreviewTransition | null>(null);
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const [promptSuggestionActive, setPromptSuggestionActive] = useState(false);
@@ -2374,6 +2374,14 @@ export default function App({ storyPackage }: AppProps) {
       ) : null}
 
       <main className="workspace static-workspace">
+        {storyPanelOpen ? (
+          <button
+            className="story-panel-backdrop"
+            type="button"
+            aria-label="收起编故事"
+            onClick={() => setStoryPanelOpenWithContinuity(false)}
+          />
+        ) : null}
         <div className={`left-panel ${storyPanelOpen ? "story-panel-open" : ""}`}>
           <div
             className={leftPanelScrolling ? "left-panel-scroll panel-scroll left-panel-scroll-scrolling" : "left-panel-scroll panel-scroll"}
