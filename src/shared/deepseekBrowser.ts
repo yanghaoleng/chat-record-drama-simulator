@@ -131,7 +131,9 @@ function roleForGeneratedMessage(project: DramaProject, message: ChatMessage, in
   const validRole = message.roleId && project.characters.some((character) => character.id === message.roleId) ? message.roleId : undefined;
   if (validRole) return validRole;
   const corpus = `${message.roleId || ""} ${message.text || ""} ${message.ttsText || ""}`;
-  if (/叫叫|jiaojiao|我先|我来|我已经|我/.test(corpus)) return "jiaojiao";
+  const playerRole = project.characters.find((character) => character.side === "right")?.id || "jiaojiao";
+  if (/我先|我来|我已经|我/.test(corpus)) return playerRole;
+  if (/叫叫|jiaojiao/.test(corpus)) return "jiaojiao";
   if (/铃铛|lingdang|分析|冷静|排期|数据|拆/.test(corpus)) return "lingdang";
   if (/猪小弟|zhuxiaodi|垫|早餐|我给|靠谱|跟班/.test(corpus)) return "zhuxiaodi";
   if (/系统|xitong|提醒|已读|流程|通知/.test(corpus)) return "xitong";
@@ -279,7 +281,46 @@ function mediaRule(project: DramaProject) {
   return `续写段如果当前 Prompt 涉及证据、截图、现场、情绪爆点，可以插入 image/meme；transfer 要明显降频，本段最多 1 条，只在付款、补偿、订单、押金、红包确实是剧情核心时出现。图片消息优先按标签指定这些 assetId：${viralAssets}。`;
 }
 
-function repairInstruction(attempt: number) {
+function rightSideCharacter(project: DramaProject) {
+  return project.characters.find((character) => character.side === "right") || project.characters[0];
+}
+
+function leftSideCharacter(project: DramaProject) {
+  return project.characters.find((character) => character.side === "left") || project.characters[1] || project.characters[0];
+}
+
+function viralPerspectiveInstruction(project: DramaProject) {
+  const rightCharacter = rightSideCharacter(project);
+  const leftCharacter = leftSideCharacter(project);
+  const rightLabel = rightCharacter.id === "girl" ? "女主" : "男主";
+  const leftLabel = leftCharacter.id === "girl" ? "女主" : "男主";
+  const tone = rightCharacter.id === "girl"
+    ? "女主可以嘴硬、克制、敏感但不被动；男主可以温柔、试探、藏着旧关系。"
+    : "男主可以嘴硬、心虚、急；女主可以冷静、克制、带刺、藏秘密。";
+  return {
+    rightLabel,
+    leftLabel,
+    rightCharacter,
+    leftCharacter,
+    tone,
+    sideRule: `用户/玩家/我方永远扮演${rightLabel}：${rightLabel} side=right，${leftLabel} side=left。哪怕你先写${leftLabel}开口，也不能把左右写反。`,
+    roleRule: `角色必须是两个：右侧${rightLabel}（roleId=${rightCharacter.id}）、左侧${leftLabel}（roleId=${leftCharacter.id}）；语音描述要利于 TTS 表演。`
+  };
+}
+
+function jojoPerspectiveInstruction(project: DramaProject) {
+  const player = rightSideCharacter(project);
+  const others = project.characters.filter((character) => character.id !== player.id).map((character) => character.name).join("、");
+  return {
+    player,
+    others,
+    sideRule: `这是钉钉手机版群聊风格：玩家扮演${player.name}，界面会把${player.name}渲染成右侧蓝色气泡；${others}在左侧白色气泡。`,
+    messageRule: `每条非 system 消息必须写 roleId。${player.name}消息 side=right，${others}消息 side=left。视觉左右由前端处理。`
+  };
+}
+
+function repairInstruction(project: DramaProject, attempt: number) {
+  const viralInstruction = viralPerspectiveInstruction(project);
   const hardTemplate = attempt > 1
     ? [
         "第二次返工，必须按这个密度写：3句内有动作，5句内出现可视化证据，8句内发生关系反转。",
@@ -291,6 +332,8 @@ function repairInstruction(attempt: number) {
   return [
     "上一版作废，原因：开头太像普通闲聊，缺少短剧钩子。",
     "重新输出严格 JSON：第一条不得问候，不得问“聊什么”，不得写“声音好熟悉/声音像谁/同学很像/像一个人/大众脸/大众嗓/认错人”。",
+    viralInstruction.sideRule,
+    `${viralInstruction.leftLabel}永远在左边 side=left，${viralInstruction.rightLabel}永远在右边 side=right，绝对不要反过来。`,
     "第一屏必须直接出现当前 Prompt 里的具体事件：下单、金额/定金、现场照片、截图备注、只有两人知道的旧细节、误会被翻出。",
     "图片消息必须写清照片/截图里到底是什么，禁止只写“关键照片/证据/图片”。图片内容只能服务当前剧情，不要复用固定例子。",
     "每 2-3 条消息就要推进一次信息，不要原地追问。",
@@ -323,14 +366,15 @@ function removeDuplicateMessages(messages: ChatMessage[]) {
 
 function systemPrompt(project: DramaProject) {
   if (isJojoProject(project)) {
+    const jojoInstruction = jojoPerspectiveInstruction(project);
     return [
       "你是叫叫公司日常群聊编剧，输出必须是严格 JSON，不要 markdown。",
-      "这是钉钉手机版群聊风格：玩家扮演叫叫，界面会把叫叫渲染成右侧蓝色气泡；其他角色在左侧白色气泡。",
+      jojoInstruction.sideRule,
       "title 是群聊名称，要像同事背后蛐蛐用的小群名，4-10 个中文字，轻松、机灵、有梗，不要正式公司群名。示例：工位蛐蛐小队、早会避难所、需求受害者联盟、周报幸存者。",
       "只写叫叫公司里的日常吐槽、自嘲、会议、需求、排期、周报、老板、客户、工位、电梯口、咖啡、deadline 等职场小反转。",
       "喜剧密度要更高：多写办公室荒诞、同事吐槽、反差包袱、系统无情补刀；每 4-6 条至少有一个轻笑点，但不要变成段子合集。",
-      "固定角色和 roleId：叫叫 roleId=jiaojiao，是勇敢爱冒险的小鸡吉祥物，也是用户自己；铃铛 roleId=lingdang，是高知女生，聪明冷静会来事；猪小弟 roleId=zhuxiaodi，憨厚踏实、家里条件好、正直，是叫叫小跟班；系统 roleId=xitong，冷静无情地提醒流程。",
-      "每条非 system 消息必须写 roleId。叫叫消息 side=right，铃铛/猪小弟/系统消息 side=left。视觉左右由前端处理。",
+      `固定角色和 roleId：叫叫 roleId=jiaojiao，是勇敢爱冒险的小鸡吉祥物；铃铛 roleId=lingdang，是高知女生，聪明冷静会来事；猪小弟 roleId=zhuxiaodi，憨厚踏实、家里条件好、正直；系统 roleId=xitong，冷静无情地提醒流程。当前用户自己是${jojoInstruction.player.name}。`,
+      jojoInstruction.messageRule,
       targetMessageRange(project),
       mediaRule(project),
       "消息必须短，单条中文尽量 4-18 字；不要写小说旁白，不要写爱情误会，不要套网红短剧男女主。",
@@ -345,6 +389,7 @@ function systemPrompt(project: DramaProject) {
       "stylePreset 必须是 jojo-company-chat；assets 必须是数组；messages 必须是数组；sfx 必须是对象。"
     ].join("\n");
   }
+  const viralInstruction = viralPerspectiveInstruction(project);
   return [
     "你是爆款聊天记录短剧编剧，擅长写高密度微信聊天短剧。输出必须是严格 JSON，不要 markdown。",
     "成片观感：横向聊天画布，大字号短消息，连续滚屏，像真实聊天局部放大。用户只看聊天，不看旁白，也必须看懂剧情。",
@@ -357,17 +402,17 @@ function systemPrompt(project: DramaProject) {
     "网红版要更暧昧、更情绪化：多写拉扯、吃醋、克制、欲言又止、嘴硬心软、旧关系刺痛；情绪要递进，不要只靠大吵。",
     "第一条消息不得是问候，必须直接进入事件：下单、账单备注、现场照片、误会、旧称呼、截图、备注。",
     "如果 Prompt 里有陪聊/旧关系：第一屏必须出现下单、订单备注、只有两人知道的具体细节、现场照片或备注，不许从陌生人闲聊开始。",
-    "用户/玩家/我方永远扮演男主：男主 side=right，女生/女主 side=left。哪怕你先写女主开口，也不能把男女左右写反。",
+    viralInstruction.sideRule,
     "transfer 是低频可选消息类型，本段最多 1 条，只在剧情确实把付款、补偿、订单、押金、红包作为核心冲突时出现；出现时必须给合理 amount 和 transferNote，不要默认 200。",
     "meme 是可选消息类型，只用于真实聊天里的表情反应；text 写情绪或表情名，如“流汗”“白眼”“偷笑”“委屈”，不要写固定口头禅。",
     "image 类型消息的 text 必须描述照片/截图的实际内容：主体是谁、在哪里、出现了什么关键物件/备注/动作。禁止只写“关键照片/证据/图片/截图”。",
     "image 类型只用 text 一个字段描述图片内容，写清这张图里具体有什么；不要拆成 label/title/detail，也不要输出额外图片文案字段。",
     "不要复用上一轮或示例里的固定图片梗、固定关系梗、固定备注梗；除非用户当前 Prompt 明确要求，否则完全按当前剧情生成新照片内容。",
     "禁止低质套话：不要写“你好”“想聊什么”“你声音好熟悉”“声音跟同学很像”“大众脸/大众嗓”“认错人”“真的吗”“你是谁呀”这类平铺直叙；要用具体细节和压迫感推动。",
-    "女生永远在左边 side=left，男生永远在右边 side=right，绝对不要反过来。system 只用于时间/提示，少用。",
-    "男主可以嘴硬、心虚、急；女主可以冷静、克制、带刺、藏秘密。两个人的语气要明显不同。",
+    `${viralInstruction.leftLabel}永远在左边 side=left，${viralInstruction.rightLabel}永远在右边 side=right，绝对不要反过来。system 只用于时间/提示，少用。`,
+    `${viralInstruction.tone}两个人的语气要明显不同。`,
     "每条消息都要带 emotion、sendSfx、pauseMs、holdMs，sendSfx 只能是 none/send/image/transfer/meme。",
-    "角色必须是两个：右侧男主、左侧女主；语音描述要利于 TTS 表演。",
+    viralInstruction.roleRule,
     "输出结构必须匹配 DramaProject：id,title,brief,stylePreset,fps,canvas,characters,assets,messages,sfx,audioMix。",
     "可以在 JSON 顶层额外输出 suggestedPrompt，作为下一轮可选提示词；没有自然建议就不要输出或留空。",
     "assets 必须是数组；messages 必须是数组；sfx 必须是对象，不要输出数组。"
@@ -412,7 +457,7 @@ function makeDeepSeekBody(project: DramaProject, prompt: string, promptCards: Pr
     messages: [
       { role: "system", content: systemPrompt(project) },
       { role: "user", content: userPrompt(project, prompt, promptCards) },
-      ...(repairAttempt ? [{ role: "user", content: repairInstruction(repairAttempt) }] : [])
+      ...(repairAttempt ? [{ role: "user", content: repairInstruction(project, repairAttempt) }] : [])
     ]
   };
 }
@@ -523,7 +568,11 @@ export async function generateDeepSeekStorySegmentWithConfig({
       id: makeId("msg"),
       roleId: roleForGeneratedMessage({ ...project, characters: baseCharacters }, message, index)
     }))
-    .map((message) => isJojoProject(project) && message.roleId === "jiaojiao" ? { ...message, side: "right" as const } : message)
+    .map((message) => {
+      if (!isJojoProject(project) || !message.roleId) return message;
+      const character = baseCharacters.find((item) => item.id === message.roleId);
+      return character ? { ...message, side: character.side } : message;
+    })
     .map((message) => normalizeGeneratedImageMessage(project, message))
     .map((message) => isJojoProject(project) ? normalizeJojoGeneratedMessage(message) : message);
   const messages = tuneGeneratedMediaDensity(project, normalizedMessages, premise);

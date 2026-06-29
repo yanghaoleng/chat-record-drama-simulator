@@ -25,9 +25,17 @@ export type PresetStory = {
   messages: PresetMessageSpec[];
 };
 
+export type ViralPresetRole = "male" | "female";
+export type JojoPresetRole = "jiaojiao" | "zhuxiaodi" | "lingdang";
+export type PresetRoleSelection = {
+  viralRole: ViralPresetRole;
+  jojoRole: JojoPresetRole;
+};
+
 export type PresetInitialArchive = {
   preset: PresetStory;
   presetIndex: number;
+  roleSelection: PresetRoleSelection;
   project: DramaProject;
   promptCards: PromptCard[];
   nextPrompt: string;
@@ -45,7 +53,19 @@ const m = (
   options: Omit<PresetMessageSpec, "roleId" | "text"> = {}
 ): PresetMessageSpec => ({ roleId, text, ...options });
 
-const viralPresetStories: PresetStory[] = [
+export const defaultPresetRoleSelection: PresetRoleSelection = {
+  viralRole: "male",
+  jojoRole: "jiaojiao"
+};
+
+export function normalizePresetRoleSelection(selection: Partial<PresetRoleSelection> = {}): PresetRoleSelection {
+  return {
+    viralRole: selection.viralRole === "female" ? "female" : "male",
+    jojoRole: selection.jojoRole === "lingdang" || selection.jojoRole === "zhuxiaodi" ? selection.jojoRole : "jiaojiao"
+  };
+}
+
+const viralMalePresetStories: PresetStory[] = [
   {
     id: "viral-blind-date-classmate",
     title: "张阿姨的相亲局",
@@ -277,6 +297,239 @@ const viralPresetStories: PresetStory[] = [
       m("girl", "但可以忙里偷闲"),
       m("boy", "那现在算偷闲吗"),
       m("girl", "算攻略开始")
+    ]
+  }
+];
+
+const viralFemalePresetStories: PresetStory[] = [
+  {
+    id: "viral-female-downstairs-neighbor",
+    title: "楼下邻居的误会",
+    prompt: "女主收到楼下男生消息，说她的快递被放到他门口。女主以为只是普通邻居，对方却从收件名认出她是高中同桌。",
+    nextPrompt: "接着写男生把快递送上来时没有立刻走，女主发现他记得她以前怕黑的细节，两个人从尴尬邻居变成旧同桌重逢。",
+    messages: [
+      m("boy", "你快递在我门口"),
+      m("girl", "啊？我写错楼层了？"),
+      m("boy", "收件名也挺眼熟"),
+      m("girl", "你认识我？"),
+      m("boy", "高二三班，靠窗那排"),
+      m("girl", "你是陈屿？"),
+      m("boy", "你终于想起来了"),
+      m("girl", "你怎么住我楼下"),
+      m("boy", "这句话我也想问"),
+      m("boy", "门口快递盒局部：收件名被便利贴挡住一半", { type: "image", assetId: "viral-photo-shoes-door", emotion: "重逢" }),
+      m("girl", "你没拆吧"),
+      m("boy", "没拆"),
+      m("boy", "但看见你还买草莓味"),
+      m("girl", "你怎么还记得"),
+      m("boy", "有些人记性比较好")
+    ]
+  },
+  {
+    id: "viral-female-car-repair",
+    title: "修车师傅太熟悉",
+    prompt: "女主车坏在路边，来帮忙的男生说话很像以前总替她背锅的同学。她一边嘴硬一边试探，对方用一个旧称呼暴露身份。",
+    nextPrompt: "接着写男生说当年不是替她背锅，是自己愿意帮她。女主假装只关心车修没修好，实际开始追问他这些年去了哪里。",
+    messages: [
+      m("girl", "你多久能到"),
+      m("boy", "已经看见你车了"),
+      m("girl", "你怎么知道是我"),
+      m("boy", "双闪打得很慌"),
+      m("girl", "师傅你说话有点冒犯"),
+      m("boy", "以前也这么说你"),
+      m("girl", "以前？"),
+      m("boy", "小夏同学，车钥匙给我"),
+      m("girl", "你别这么叫我"),
+      m("boy", "路边车灯和工具箱局部，雨水打在车窗上", { type: "image", assetId: "viral-photo-rainy-car-window", emotion: "认出" }),
+      m("girl", "你是陆沉？"),
+      m("boy", "嗯，那个总替你背锅的"),
+      m("girl", "我没让你背"),
+      m("boy", "我知道"),
+      m("boy", "所以这次也算我自愿")
+    ]
+  },
+  {
+    id: "viral-female-wrong-transfer",
+    title: "转错账的人",
+    prompt: "女主突然收到一笔转账，对方男生说转错了。她准备退回时发现备注写的是她大学时的小名，转错账变成一次试探。",
+    nextPrompt: "接着写男生承认不是转错，是看到她朋友圈后没忍住。女主一边退钱一边逼问他为什么还记得那个小名。",
+    messages: [
+      m("boy", "不好意思，转错人了"),
+      m("girl", "你转了 52.1"),
+      m("boy", "手滑"),
+      m("girl", "备注也手滑？"),
+      m("boy", "你看见了？"),
+      m("girl", "小月亮是谁"),
+      m("boy", "你大学时的外号"),
+      m("girl", "你到底是谁"),
+      m("boy", "那个帮你占图书馆座的人"),
+      m("boy", "微信转账截图局部：金额 52.1，备注露出小月亮", { type: "image", assetId: "viral-photo-phone-chat", emotion: "试探" }),
+      m("girl", "周以安？"),
+      m("boy", "你还记得"),
+      m("girl", "我先退钱"),
+      m("boy", "钱可以退"),
+      m("boy", "备注不一定收得回")
+    ]
+  },
+  {
+    id: "viral-female-night-pharmacy",
+    title: "深夜药店偶遇",
+    prompt: "女主半夜买胃药，收银台男生发来消息提醒她别空腹吃。她以为是店员职业习惯，后来发现他早就认识她。",
+    nextPrompt: "接着写男生说他不是多管闲事，只是以前见过她胃疼还硬撑。女主开始意识到他关注她比想象中久。",
+    messages: [
+      m("boy", "药别空腹吃"),
+      m("girl", "你是药店店员？"),
+      m("boy", "刚刚帮你结账那个"),
+      m("girl", "服务这么到位吗"),
+      m("boy", "你以前也胃不好"),
+      m("girl", "你怎么知道"),
+      m("boy", "大学辩论赛后台"),
+      m("girl", "你在现场？"),
+      m("boy", "你疼到把稿子拿反了"),
+      m("boy", "药袋和温水杯局部，便利贴写着饭后吃", { type: "image", assetId: "viral-photo-bedside-props", emotion: "照顾" }),
+      m("girl", "这件事没人知道"),
+      m("boy", "我知道"),
+      m("girl", "所以你刚刚故意加我？"),
+      m("boy", "故意提醒你"),
+      m("boy", "加你是顺便")
+    ]
+  },
+  {
+    id: "viral-female-design-client",
+    title: "甲方像前暗恋对象",
+    prompt: "女主作为设计师对接新客户，对方男生提需求非常细，却总能说中她的习惯。她怀疑他是以前暗恋过她的人。",
+    nextPrompt: "接着写男生把需求讲得很专业，最后却提到她高中时总把标题往左挪两像素，女主终于确认他不是普通客户。",
+    messages: [
+      m("boy", "首页标题想再克制一点"),
+      m("girl", "你们品牌调性这么冷？"),
+      m("boy", "不是冷，是你以前喜欢留白"),
+      m("girl", "你这话不像客户"),
+      m("boy", "那像什么"),
+      m("girl", "像认识我很久"),
+      m("boy", "也不算很久"),
+      m("boy", "从校刊那版封面开始"),
+      m("girl", "你看过校刊？"),
+      m("boy", "手机屏幕局部：设计稿标题被标注“向左 2px”", { type: "image", assetId: "viral-photo-hand-phone", emotion: "证据" }),
+      m("girl", "你是沈砚？"),
+      m("boy", "嗯"),
+      m("girl", "你以前从不提意见"),
+      m("boy", "因为那时候只敢看"),
+      m("boy", "现在想参与一下")
+    ]
+  },
+  {
+    id: "viral-female-lost-earring",
+    title: "耳钉落在他那里",
+    prompt: "女主参加朋友聚会后发现耳钉不见了，男生发来照片说在他车里。她以为只是顺路搭车，对方却知道这枚耳钉的来历。",
+    nextPrompt: "接着写男生说他不是第一次见那枚耳钉，女主追问后发现他们在更早的一场婚礼上就错过过。",
+    messages: [
+      m("boy", "你耳钉落我车上了"),
+      m("girl", "哪只？"),
+      m("boy", "银色月亮那只"),
+      m("girl", "你观察这么细？"),
+      m("boy", "这只你戴很多年了"),
+      m("girl", "你怎么知道"),
+      m("boy", "前年婚礼，你也戴过"),
+      m("girl", "我们前年见过？"),
+      m("boy", "你帮新娘挡酒那桌"),
+      m("boy", "车座缝里的银色耳钉局部，窗外是夜色", { type: "image", assetId: "viral-photo-night-street", emotion: "遗落" }),
+      m("girl", "我完全没印象"),
+      m("boy", "我有"),
+      m("girl", "那你现在才出现"),
+      m("boy", "因为这次你把线索落下了"),
+      m("boy", "我只好追上来")
+    ]
+  },
+  {
+    id: "viral-female-wedding-speech",
+    title: "婚礼司仪认出她",
+    prompt: "女主临时当伴娘，婚礼司仪男生在群里发流程时突然私聊她，说她的发言稿像以前广播站的人写的。",
+    nextPrompt: "接着写男生承认当年一直听她播晚间栏目，女主表面镇定，实际开始回想那个总匿名投稿的男生。",
+    messages: [
+      m("boy", "伴娘发言稿我看了"),
+      m("girl", "有问题？"),
+      m("boy", "太像广播站风格"),
+      m("girl", "你怎么知道我在广播站"),
+      m("boy", "你每周三晚播情书栏目"),
+      m("girl", "那都是很久以前"),
+      m("boy", "我投过稿"),
+      m("girl", "匿名那个？"),
+      m("boy", "不止一封"),
+      m("boy", "婚礼桌牌和手写稿局部，红色笔圈出一句开场", { type: "image", assetId: "viral-photo-phone-chat", emotion: "认出" }),
+      m("girl", "你现在说这个合适吗"),
+      m("boy", "婚礼很适合补迟到的话"),
+      m("girl", "你先把流程发完"),
+      m("boy", "流程发完"),
+      m("boy", "我能补一封吗")
+    ]
+  },
+  {
+    id: "viral-female-rental-contract",
+    title: "合租合同里的旧名",
+    prompt: "女主看新房合租合同，发现对方男室友的紧急联系人写着她以前的网名。她开始怀疑这不是普通合租。",
+    nextPrompt: "接着写男生解释那是很早以前记下的名字，女主逼问他是不是论坛里那个一直帮她回帖的人。",
+    messages: [
+      m("girl", "合同我看了"),
+      m("boy", "哪里不对？"),
+      m("girl", "紧急联系人为什么写星野"),
+      m("boy", "你看到那页了"),
+      m("girl", "那是我以前网名"),
+      m("boy", "我知道"),
+      m("girl", "你最好解释"),
+      m("boy", "高中论坛，你总半夜发帖"),
+      m("girl", "你是那个回帖的人？"),
+      m("boy", "租房合同和旧钥匙局部，联系人一栏被手指压住", { type: "image", assetId: "viral-photo-shoes-door", emotion: "旧名" }),
+      m("boy", "我怕你删号后找不到"),
+      m("girl", "所以你把我写进合同？"),
+      m("boy", "不太理智"),
+      m("girl", "确实"),
+      m("girl", "但我想听完")
+    ]
+  },
+  {
+    id: "viral-female-food-delivery",
+    title: "外卖备注太熟",
+    prompt: "女主点外卖，骑手男生发来消息说备注写得像她本人。她以为对方嘴甜，结果发现他是以前总给她带夜宵的学长。",
+    nextPrompt: "接着写男生说他不是故意接单，是看到地址后犹豫很久才联系。女主嘴上嫌他绕，心里已经认出来。",
+    messages: [
+      m("boy", "你的外卖到了"),
+      m("girl", "放门口就行"),
+      m("boy", "备注写少辣多醋"),
+      m("girl", "有什么问题"),
+      m("boy", "你以前也这样"),
+      m("girl", "你们骑手还查历史？"),
+      m("boy", "不是平台历史"),
+      m("boy", "是我记性不好忘不掉"),
+      m("girl", "你是谁"),
+      m("boy", "夜宵外卖袋局部，备注贴纸写着少辣多醋", { type: "image", assetId: "viral-photo-takeout-food", emotion: "旧习惯" }),
+      m("boy", "以前给你带炒粉的学长"),
+      m("girl", "程礼？"),
+      m("boy", "嗯"),
+      m("girl", "你绕这么大一圈"),
+      m("boy", "怕你不收")
+    ]
+  },
+  {
+    id: "viral-female-subway-seat",
+    title: "地铁让座的人",
+    prompt: "女主地铁上收到陌生男生消息，说她包上的挂件快掉了。她回头没看到人，对方却发来一个只有老同学才知道的称呼。",
+    nextPrompt: "接着写男生说他站在下一节车厢，不敢直接叫她。女主让他下一站别下车，两个人隔着人群重新连上。",
+    messages: [
+      m("boy", "你包上挂件快掉了"),
+      m("girl", "你是谁"),
+      m("boy", "刚刚站你旁边"),
+      m("girl", "我没看到"),
+      m("boy", "人太多"),
+      m("girl", "那你怎么加到我"),
+      m("boy", "校友群里翻到的"),
+      m("girl", "你别吓我"),
+      m("boy", "小鹿班长，别紧张"),
+      m("boy", "夜晚街道虚焦：包带上的小鹿挂件快松开", { type: "image", assetId: "viral-photo-night-street", emotion: "隔着人群" }),
+      m("girl", "这个称呼只有初中同学知道"),
+      m("boy", "所以我不是陌生人"),
+      m("girl", "你在哪节车厢"),
+      m("boy", "下一节"),
+      m("girl", "下一站别下")
     ]
   }
 ];
@@ -515,12 +768,52 @@ function cloneBaseProject(project: DramaProject): DramaProject {
   });
 }
 
-function presetStoriesFor(packageId: StoryPackage) {
-  return packageId === "jojo" ? jojoPresetStories : viralPresetStories;
+function presetStoriesFor(packageId: StoryPackage, roleSelection: Partial<PresetRoleSelection> = {}) {
+  const role = normalizePresetRoleSelection(roleSelection);
+  if (packageId === "jojo") return jojoPresetStories;
+  return role.viralRole === "female" ? viralFemalePresetStories : viralMalePresetStories;
 }
 
-function baseProjectFor(packageId: StoryPackage) {
-  return cloneBaseProject(packageId === "jojo" ? jojoProject : sampleProject);
+function applyViralRole(project: DramaProject, viralRole: ViralPresetRole): DramaProject {
+  if (viralRole === "male") return project;
+  return parseProject({
+    ...project,
+    id: `${project.id}-female`,
+    brief: project.brief.replace(/男主/g, "女主").replace(/女生/g, "男生").replace(/女主/g, "女主"),
+    characters: project.characters.map((character) => {
+      if (character.id === "girl") return { ...character, side: "right" as const };
+      if (character.id === "boy") return { ...character, side: "left" as const };
+      return character;
+    }),
+    messages: project.messages.map((message) => {
+      if (message.roleId === "girl") return { ...message, side: "right" as const };
+      if (message.roleId === "boy") return { ...message, side: "left" as const };
+      return message;
+    })
+  });
+}
+
+function applyJojoRole(project: DramaProject, jojoRole: JojoPresetRole): DramaProject {
+  return parseProject({
+    ...project,
+    id: `${project.id}-${jojoRole}`,
+    brief: project.brief.replace(/叫叫是用户自己扮演/g, `${project.characters.find((character) => character.id === jojoRole)?.name || "叫叫"}是用户自己扮演`),
+    characters: project.characters.map((character) => ({
+      ...character,
+      side: character.id === jojoRole ? "right" as const : "left" as const
+    })),
+    messages: project.messages.map((message) => {
+      if (!message.roleId) return message;
+      return { ...message, side: message.roleId === jojoRole ? "right" as const : "left" as const };
+    })
+  });
+}
+
+function baseProjectFor(packageId: StoryPackage, roleSelection: PresetRoleSelection) {
+  const baseProject = cloneBaseProject(packageId === "jojo" ? jojoProject : sampleProject);
+  return packageId === "jojo"
+    ? applyJojoRole(baseProject, roleSelection.jojoRole)
+    : applyViralRole(baseProject, roleSelection.viralRole);
 }
 
 function messageSide(project: DramaProject, roleId: string): ChatMessage["side"] {
@@ -561,27 +854,33 @@ function buildPresetMessages(project: DramaProject, preset: PresetStory): ChatMe
   });
 }
 
-export function presetStoryCount(packageId: StoryPackage) {
-  return presetStoriesFor(packageId).length;
+export function presetStoryCount(packageId: StoryPackage, roleSelection: Partial<PresetRoleSelection> = {}) {
+  return presetStoriesFor(packageId, roleSelection).length;
 }
 
-export function randomPresetStoryIndex(packageId: StoryPackage) {
-  return Math.floor(Math.random() * presetStoryCount(packageId));
+export function randomPresetStoryIndex(packageId: StoryPackage, roleSelection: Partial<PresetRoleSelection> = {}) {
+  return Math.floor(Math.random() * presetStoryCount(packageId, roleSelection));
 }
 
-export function nextPresetStoryIndex(packageId: StoryPackage, currentIndex: number) {
-  return (currentIndex + 1) % presetStoryCount(packageId);
+export function nextPresetStoryIndex(packageId: StoryPackage, currentIndex: number, roleSelection: Partial<PresetRoleSelection> = {}) {
+  return (currentIndex + 1) % presetStoryCount(packageId, roleSelection);
 }
 
 export function isPresetPromptCard(card: PromptCard | undefined) {
   return Boolean(card?.id.startsWith("preset-"));
 }
 
-export function createPresetInitialArchive(packageId: StoryPackage, requestedIndex = randomPresetStoryIndex(packageId)): PresetInitialArchive {
-  const stories = presetStoriesFor(packageId);
-  const presetIndex = ((requestedIndex % stories.length) + stories.length) % stories.length;
+export function createPresetInitialArchive(
+  packageId: StoryPackage,
+  requestedIndex?: number,
+  roleSelection: Partial<PresetRoleSelection> = {}
+): PresetInitialArchive {
+  const resolvedRoleSelection = normalizePresetRoleSelection(roleSelection);
+  const stories = presetStoriesFor(packageId, resolvedRoleSelection);
+  const selectedIndex = requestedIndex ?? randomPresetStoryIndex(packageId, resolvedRoleSelection);
+  const presetIndex = ((selectedIndex % stories.length) + stories.length) % stories.length;
   const preset = stories[presetIndex];
-  const baseProject = baseProjectFor(packageId);
+  const baseProject = baseProjectFor(packageId, resolvedRoleSelection);
   const messages = buildPresetMessages(baseProject, preset);
   const project = parseProject({
     ...baseProject,
@@ -609,6 +908,7 @@ export function createPresetInitialArchive(packageId: StoryPackage, requestedInd
   return {
     preset,
     presetIndex,
+    roleSelection: resolvedRoleSelection,
     project,
     promptCards: [],
     nextPrompt: preset.prompt,

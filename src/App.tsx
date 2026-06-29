@@ -22,6 +22,7 @@ import {
   Save,
   Smartphone,
   Sparkles,
+  Users,
   Video,
   X
 } from "lucide-react";
@@ -42,8 +43,12 @@ import {
   createPresetInitialArchive,
   isPresetPromptCard,
   nextPresetStoryIndex,
+  normalizePresetRoleSelection,
   randomPresetStoryIndex,
-  type PresetInitialArchive
+  type JojoPresetRole,
+  type PresetInitialArchive,
+  type PresetRoleSelection,
+  type ViralPresetRole
 } from "./shared/presetStories";
 import { ChatDrama } from "./remotion/ChatDrama";
 import { imageNarrativeCopy, imageSourceForMessage } from "./shared/imageNarrative";
@@ -55,6 +60,7 @@ import { buildTimeline, getDurationInFrames } from "./shared/timing";
 
 type ApiState = "idle" | "loading" | "error" | "done";
 type PreviewMode = "wechat" | "video";
+type TitleMenuPanel = "preview" | "role";
 type PreviewDirection = "left" | "right";
 type PreviewTransition = {
   direction: PreviewDirection;
@@ -98,6 +104,13 @@ const jojoStoryToggleGlassStyle: CSSProperties = {
   backdropFilter: "blur(14px) saturate(118%)",
   WebkitBackdropFilter: "blur(14px) saturate(118%)"
 };
+
+const viralRoleOptions: Array<{ id: ViralPresetRole; label: string; detail: string }> = [
+  { id: "male", label: "男性", detail: "男主视角" },
+  { id: "female", label: "女性", detail: "女主视角" }
+];
+
+const jojoRoleOptions: JojoPresetRole[] = ["jiaojiao", "zhuxiaodi", "lingdang"];
 
 function packageTitle(_packageId: StoryPackage) {
   return "蛐蛐模拟器";
@@ -613,9 +626,9 @@ function WechatMessageContent({ project, message }: { project: DramaProject; mes
 
 function visualSideFor(project: DramaProject, message: ChatMessage) {
   if (!isJojoProject(project)) return message.side;
-  if (message.roleId === "jiaojiao") return "right";
   if (message.side === "center") return "center";
-  return "left";
+  const character = message.roleId ? project.characters.find((item) => item.id === message.roleId) : undefined;
+  return character?.side || message.side;
 }
 
 function WechatStoryPreview({
@@ -647,7 +660,7 @@ function WechatStoryPreview({
             return (
               <div
                 key={message.id}
-                className={`wechat-row wechat-row-${visualSide} ${jojoMode ? `dingtalk-row ${message.roleId === "jiaojiao" ? "dingtalk-row-self" : "dingtalk-row-other"}` : ""}`}
+                className={`wechat-row wechat-row-${visualSide} ${jojoMode ? `dingtalk-row ${visualSide === "right" ? "dingtalk-row-self" : "dingtalk-row-other"}` : ""}`}
                 data-message-id={message.id}
               >
                 {visualSide === "left" ? <WechatAvatar project={project} message={message} /> : null}
@@ -680,10 +693,12 @@ export default function App({ storyPackage }: AppProps) {
     initialPresetArchiveRef.current = createPresetInitialArchive(storyPackage);
   }
   const [activePresetIndex, setActivePresetIndex] = useState(initialPresetArchiveRef.current.presetIndex);
+  const [activePresetRole, setActivePresetRole] = useState<PresetRoleSelection>(() => initialPresetArchiveRef.current!.roleSelection);
   const [project, setProject] = useState<DramaProject>(() => initialPresetArchiveRef.current!.project);
   const [promptCards, setPromptCards] = useState<PromptCard[]>(() => initialPresetArchiveRef.current!.promptCards);
   const [draftPrompt, setDraftPrompt] = useState("");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("wechat");
+  const [titleMenuPanel, setTitleMenuPanel] = useState<TitleMenuPanel>("preview");
   const [status, setStatus] = useState<ApiState>("idle");
   const [statusText, setStatusText] = useState("正在检查 DeepSeek 配置...");
   const [clips, setClips] = useState<TtsClipMap>({});
@@ -1360,6 +1375,7 @@ export default function App({ storyPackage }: AppProps) {
     settledPromptCardIdsRef.current.clear();
     completedPromptCardLayoutKeysRef.current.clear();
     setActivePresetIndex(archive.presetIndex);
+    setActivePresetRole(archive.roleSelection);
     setProject(archive.project);
     setPromptCards(archive.promptCards);
     updatePendingPromptCards(() => []);
@@ -1383,9 +1399,23 @@ export default function App({ storyPackage }: AppProps) {
   }
 
   function switchInitialPreset() {
-    const nextIndex = nextPresetStoryIndex(storyPackage, activePresetIndex);
-    const archive = createPresetInitialArchive(storyPackage, nextIndex);
+    const nextIndex = nextPresetStoryIndex(storyPackage, activePresetIndex, activePresetRole);
+    const archive = createPresetInitialArchive(storyPackage, nextIndex, activePresetRole);
     loadInitialPresetArchive(archive, `已切换预设：${archive.preset.title}`);
+  }
+
+  function roleStatusLabel(roleSelection: PresetRoleSelection) {
+    if (storyPackage !== "jojo") return roleSelection.viralRole === "female" ? "女性视角" : "男性视角";
+    const character = projectRef.current.characters.find((item) => item.id === roleSelection.jojoRole);
+    return character?.name || "叫叫";
+  }
+
+  function switchPresetRole(nextRoleSelection: Partial<PresetRoleSelection>) {
+    const roleSelection = normalizePresetRoleSelection({ ...activePresetRole, ...nextRoleSelection });
+    if (roleSelection.viralRole === activePresetRole.viralRole && roleSelection.jojoRole === activePresetRole.jojoRole) return;
+    const archive = createPresetInitialArchive(storyPackage, randomPresetStoryIndex(storyPackage, roleSelection), roleSelection);
+    closeSettingsMenu();
+    loadInitialPresetArchive(archive, `已切换角色：${roleStatusLabel(roleSelection)}`);
   }
 
   function applyStorySegment(
@@ -1882,7 +1912,7 @@ export default function App({ storyPackage }: AppProps) {
   }
 
   function clearLine() {
-    const archive = createPresetInitialArchive(storyPackage, randomPresetStoryIndex(storyPackage));
+    const archive = createPresetInitialArchive(storyPackage, randomPresetStoryIndex(storyPackage, activePresetRole), activePresetRole);
     loadInitialPresetArchive(archive, `故事已重新开始：${archive.preset.title}`);
   }
 
@@ -2183,6 +2213,9 @@ export default function App({ storyPackage }: AppProps) {
 
   const switchLink = packageSwitchLink(storyPackage);
   const githubRepositoryUrl = import.meta.env.VITE_GITHUB_REPO_URL || defaultGithubRepositoryUrl;
+  const jojoRoleChoices = jojoRoleOptions
+    .map((roleId) => project.characters.find((character) => character.id === roleId))
+    .filter((character): character is DramaProject["characters"][number] => Boolean(character));
   const storyCardCount = promptCards.length + pendingPromptCards.length;
   const canSubmitStory = Boolean(draftPrompt.trim());
   const storyActionButtonClassName = [
@@ -2406,28 +2439,84 @@ export default function App({ storyPackage }: AppProps) {
             </button>
             {settingsMenuOpen ? (
               <div className="title-menu-popover" role="menu">
-                <div className="title-menu-tabs" role="tablist" aria-label="预览模式">
+                <div className="title-menu-tabs" role="tablist" aria-label="菜单分组">
                   <button
-                    className={previewMode === "wechat" ? "title-menu-tab title-menu-tab-active" : "title-menu-tab"}
+                    className={titleMenuPanel === "preview" ? "title-menu-tab title-menu-tab-active" : "title-menu-tab"}
                     type="button"
                     role="tab"
-                    aria-selected={previewMode === "wechat"}
-                    onClick={() => choosePreviewMode("wechat")}
+                    aria-selected={titleMenuPanel === "preview"}
+                    onClick={() => setTitleMenuPanel("preview")}
                   >
                     <Smartphone size={15} />
-                    <span>界面版</span>
+                    <span>预览</span>
                   </button>
                   <button
-                    className={previewMode === "video" ? "title-menu-tab title-menu-tab-active" : "title-menu-tab"}
+                    className={titleMenuPanel === "role" ? "title-menu-tab title-menu-tab-active" : "title-menu-tab"}
                     type="button"
                     role="tab"
-                    aria-selected={previewMode === "video"}
-                    onClick={() => choosePreviewMode("video")}
+                    aria-selected={titleMenuPanel === "role"}
+                    onClick={() => setTitleMenuPanel("role")}
                   >
-                    <Video size={15} />
-                    <span>视频版</span>
+                    <Users size={15} />
+                    <span>角色</span>
                   </button>
                 </div>
+                {titleMenuPanel === "preview" ? (
+                  <div className="title-menu-panel" role="tabpanel">
+                    <div className="title-menu-mode-grid">
+                      <button
+                        className={previewMode === "wechat" ? "title-menu-choice title-menu-choice-active" : "title-menu-choice"}
+                        type="button"
+                        onClick={() => choosePreviewMode("wechat")}
+                      >
+                        <Smartphone size={15} />
+                        <span>界面版</span>
+                      </button>
+                      <button
+                        className={previewMode === "video" ? "title-menu-choice title-menu-choice-active" : "title-menu-choice"}
+                        type="button"
+                        onClick={() => choosePreviewMode("video")}
+                      >
+                        <Video size={15} />
+                        <span>视频版</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="title-menu-panel" role="tabpanel">
+                    {storyPackage === "jojo" ? (
+                      <div className="title-role-avatar-grid">
+                        {jojoRoleChoices.map((character) => (
+                          <button
+                            key={character.id}
+                            className={activePresetRole.jojoRole === character.id ? "title-role-avatar title-role-avatar-active" : "title-role-avatar"}
+                            type="button"
+                            onClick={() => switchPresetRole({ jojoRole: character.id as JojoPresetRole })}
+                            aria-pressed={activePresetRole.jojoRole === character.id}
+                          >
+                            {character.avatarUrl ? <img src={resolvePublicAssetPath(character.avatarUrl)} alt="" /> : <span>{character.avatarInitial}</span>}
+                            <small>{character.name}</small>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="title-role-segment">
+                        {viralRoleOptions.map((option) => (
+                          <button
+                            key={option.id}
+                            className={activePresetRole.viralRole === option.id ? "title-role-option title-role-option-active" : "title-role-option"}
+                            type="button"
+                            onClick={() => switchPresetRole({ viralRole: option.id })}
+                            aria-pressed={activePresetRole.viralRole === option.id}
+                          >
+                            <span>{option.label}</span>
+                            <small>{option.detail}</small>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <a className="title-menu-item" role="menuitem" href={switchLink.href} onClick={closeSettingsMenu}>
                   <ArrowUpRight size={16} />
                   <span>{switchLink.label}</span>

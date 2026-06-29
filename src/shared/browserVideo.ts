@@ -71,9 +71,9 @@ function loadCanvasImage(src: string): Promise<HTMLImageElement | undefined> {
 
 function visualSideFor(project: DramaProject, message: ChatMessage): ChatMessage["side"] {
   if (!isJojoProject(project)) return message.side;
-  if (message.roleId === "jiaojiao") return "right";
   if (message.side === "center") return "center";
-  return "left";
+  const character = message.roleId ? project.characters.find((item) => item.id === message.roleId) : undefined;
+  return character?.side || message.side;
 }
 
 function parseGradientColors(value: string | undefined, fallback: [string, string]): [string, string] {

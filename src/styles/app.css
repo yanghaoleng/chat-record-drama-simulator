@@ -368,6 +368,98 @@ button[disabled],
   color: var(--app-accent-readable);
 }
 
+.title-menu-panel {
+  margin-bottom: 6px;
+}
+
+.title-menu-mode-grid,
+.title-role-segment {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.title-menu-choice,
+.title-role-option,
+.title-role-avatar {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--app-text-muted);
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.title-menu-choice,
+.title-role-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 7px 9px;
+}
+
+.title-role-option {
+  flex-direction: column;
+  gap: 1px;
+}
+
+.title-menu-choice span,
+.title-role-option span,
+.title-role-avatar small {
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.title-role-option small {
+  color: var(--app-text-subtle);
+  font-size: 10px;
+}
+
+.title-role-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.title-role-avatar {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  min-height: 76px;
+  padding: 8px 5px 7px;
+}
+
+.title-role-avatar img,
+.title-role-avatar > span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--app-surface-3);
+  object-fit: cover;
+}
+
+.title-menu-choice:hover,
+.title-role-option:hover,
+.title-role-avatar:hover {
+  border-color: var(--wechat-green-border);
+  background: rgba(255, 255, 255, 0.065);
+  color: var(--app-text);
+  transform: translateY(-1px);
+}
+
+.title-menu-choice-active,
+.title-role-option-active,
+.title-role-avatar-active {
+  border-color: var(--wechat-green-border);
+  background: var(--wechat-green-soft);
+  color: var(--app-accent-readable);
+}
+
 .title-menu-item {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr) auto;

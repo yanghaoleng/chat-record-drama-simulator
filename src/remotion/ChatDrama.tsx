@@ -40,9 +40,9 @@ function Avatar({ project, message }: { project: DramaProject; message: ChatMess
 
 function visualSideFor(project: DramaProject, message: ChatMessage) {
   if (!isJojoProject(project)) return message.side;
-  if (message.roleId === "jiaojiao") return "right";
   if (message.side === "center") return "center";
-  return "left";
+  const character = message.roleId ? project.characters.find((item) => item.id === message.roleId) : undefined;
+  return character?.side || message.side;
 }
 
 function TextBubble({ message, visualSide }: { message: ChatMessage; visualSide: ChatMessage["side"] }) {
@@ -150,7 +150,7 @@ function MessageRow({ project, entry }: { project: DramaProject; entry: Timeline
 
   return (
     <div
-      className={`message-row message-${visualSide} ${jojoMode ? (entry.message.roleId === "jiaojiao" ? "message-self" : "message-other") : ""}`}
+      className={`message-row message-${visualSide} ${jojoMode ? (visualSide === "right" ? "message-self" : "message-other") : ""}`}
       style={{ top: entry.y, opacity, transform: `translateY(${translateY}px) scale(${scale})` }}
     >
       {visualSide === "left" ? <Avatar project={project} message={entry.message} /> : null}
