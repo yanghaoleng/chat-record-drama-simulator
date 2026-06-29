@@ -2907,12 +2907,8 @@ button[disabled],
     position: sticky;
     top: 0;
     z-index: 6;
-    margin-top: auto;
-    animation: desk-breathe-primary 6.4s ease-in-out infinite;
-  }
-
-  .static-workspace .left-panel-scroll:not(:has(.prompt-history-card)) > .story-composer-card {
     margin-top: var(--desktop-story-panel-top-offset);
+    animation: desk-breathe-primary 6.4s ease-in-out infinite;
   }
 
   .static-workspace .left-panel-scroll > .surface-card:last-child {
