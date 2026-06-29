@@ -22,7 +22,6 @@ import {
   Save,
   Smartphone,
   Sparkles,
-  Users,
   Video,
   X
 } from "lucide-react";
@@ -51,6 +50,7 @@ import {
   type ViralPresetRole
 } from "./shared/presetStories";
 import { ChatDrama } from "./remotion/ChatDrama";
+import { defaultAvatars } from "./shared/avatarLibrary";
 import { imageNarrativeCopy, imageSourceForMessage } from "./shared/imageNarrative";
 import { jojoCssMemeCardForMessage, type JojoCssMemeCard } from "./shared/jojoMemeCards";
 import { isJojoProject } from "./shared/jojoProject";
@@ -60,7 +60,6 @@ import { buildTimeline, getDurationInFrames } from "./shared/timing";
 
 type ApiState = "idle" | "loading" | "error" | "done";
 type PreviewMode = "wechat" | "video";
-type TitleMenuPanel = "preview" | "role";
 type PreviewDirection = "left" | "right";
 type PreviewTransition = {
   direction: PreviewDirection;
@@ -110,7 +109,17 @@ const viralRoleOptions: Array<{ id: ViralPresetRole; label: string; detail: stri
   { id: "female", label: "女性", detail: "女主视角" }
 ];
 
+const viralRoleAvatarIds: Record<ViralPresetRole, string[]> = {
+  male: ["boy-soft-selfie", "boy-cartoon-night", "boy-neon-blur", "boy-room-selfie", "boy-mono-blur"],
+  female: ["girl-nostalgia-dark", "girl-sweater-soft", "girl-cartoon-pink", "girl-soft-flash", "girl-headphone-blur"]
+};
+
 const jojoRoleOptions: JojoPresetRole[] = ["jiaojiao", "zhuxiaodi", "lingdang"];
+
+function randomViralRoleAvatarUrl(role: ViralPresetRole) {
+  const avatars = defaultAvatars.filter((avatar) => viralRoleAvatarIds[role].includes(avatar.id));
+  return avatars[Math.floor(Math.random() * avatars.length)]?.url;
+}
 
 function packageTitle(_packageId: StoryPackage) {
   return "蛐蛐模拟器";
@@ -698,7 +707,6 @@ export default function App({ storyPackage }: AppProps) {
   const [promptCards, setPromptCards] = useState<PromptCard[]>(() => initialPresetArchiveRef.current!.promptCards);
   const [draftPrompt, setDraftPrompt] = useState("");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("wechat");
-  const [titleMenuPanel, setTitleMenuPanel] = useState<TitleMenuPanel>("preview");
   const [status, setStatus] = useState<ApiState>("idle");
   const [statusText, setStatusText] = useState("正在检查 DeepSeek 配置...");
   const [clips, setClips] = useState<TtsClipMap>({});
@@ -2216,6 +2224,13 @@ export default function App({ storyPackage }: AppProps) {
   const jojoRoleChoices = jojoRoleOptions
     .map((roleId) => project.characters.find((character) => character.id === roleId))
     .filter((character): character is DramaProject["characters"][number] => Boolean(character));
+  const viralRoleChoices = useMemo(
+    () => viralRoleOptions.map((option) => ({
+      ...option,
+      avatarUrl: randomViralRoleAvatarUrl(option.id)
+    })),
+    []
+  );
   const storyCardCount = promptCards.length + pendingPromptCards.length;
   const canSubmitStory = Boolean(draftPrompt.trim());
   const storyActionButtonClassName = [
@@ -2439,84 +2454,62 @@ export default function App({ storyPackage }: AppProps) {
             </button>
             {settingsMenuOpen ? (
               <div className="title-menu-popover" role="menu">
-                <div className="title-menu-tabs" role="tablist" aria-label="菜单分组">
+                <div className="title-menu-tabs" role="tablist" aria-label="预览模式">
                   <button
-                    className={titleMenuPanel === "preview" ? "title-menu-tab title-menu-tab-active" : "title-menu-tab"}
+                    className={previewMode === "wechat" ? "title-menu-tab title-menu-tab-active" : "title-menu-tab"}
                     type="button"
                     role="tab"
-                    aria-selected={titleMenuPanel === "preview"}
-                    onClick={() => setTitleMenuPanel("preview")}
+                    aria-selected={previewMode === "wechat"}
+                    onClick={() => choosePreviewMode("wechat")}
                   >
                     <Smartphone size={15} />
-                    <span>预览</span>
+                    <span>界面版</span>
                   </button>
                   <button
-                    className={titleMenuPanel === "role" ? "title-menu-tab title-menu-tab-active" : "title-menu-tab"}
+                    className={previewMode === "video" ? "title-menu-tab title-menu-tab-active" : "title-menu-tab"}
                     type="button"
                     role="tab"
-                    aria-selected={titleMenuPanel === "role"}
-                    onClick={() => setTitleMenuPanel("role")}
+                    aria-selected={previewMode === "video"}
+                    onClick={() => choosePreviewMode("video")}
                   >
-                    <Users size={15} />
-                    <span>角色</span>
+                    <Video size={15} />
+                    <span>视频版</span>
                   </button>
                 </div>
-                {titleMenuPanel === "preview" ? (
-                  <div className="title-menu-panel" role="tabpanel">
-                    <div className="title-menu-mode-grid">
-                      <button
-                        className={previewMode === "wechat" ? "title-menu-choice title-menu-choice-active" : "title-menu-choice"}
-                        type="button"
-                        onClick={() => choosePreviewMode("wechat")}
-                      >
-                        <Smartphone size={15} />
-                        <span>界面版</span>
-                      </button>
-                      <button
-                        className={previewMode === "video" ? "title-menu-choice title-menu-choice-active" : "title-menu-choice"}
-                        type="button"
-                        onClick={() => choosePreviewMode("video")}
-                      >
-                        <Video size={15} />
-                        <span>视频版</span>
-                      </button>
+                <div className="title-menu-panel" role="group" aria-label="选择角色">
+                  {storyPackage === "jojo" ? (
+                    <div className="title-role-avatar-grid">
+                      {jojoRoleChoices.map((character) => (
+                        <button
+                          key={character.id}
+                          className={activePresetRole.jojoRole === character.id ? "title-role-avatar title-role-avatar-active" : "title-role-avatar"}
+                          type="button"
+                          onClick={() => switchPresetRole({ jojoRole: character.id as JojoPresetRole })}
+                          aria-pressed={activePresetRole.jojoRole === character.id}
+                        >
+                          {character.avatarUrl ? <img src={resolvePublicAssetPath(character.avatarUrl)} alt="" /> : <span className="title-role-avatar-fallback">{character.avatarInitial}</span>}
+                          <strong>{character.name}</strong>
+                        </button>
+                      ))}
                     </div>
-                  </div>
-                ) : (
-                  <div className="title-menu-panel" role="tabpanel">
-                    {storyPackage === "jojo" ? (
-                      <div className="title-role-avatar-grid">
-                        {jojoRoleChoices.map((character) => (
-                          <button
-                            key={character.id}
-                            className={activePresetRole.jojoRole === character.id ? "title-role-avatar title-role-avatar-active" : "title-role-avatar"}
-                            type="button"
-                            onClick={() => switchPresetRole({ jojoRole: character.id as JojoPresetRole })}
-                            aria-pressed={activePresetRole.jojoRole === character.id}
-                          >
-                            {character.avatarUrl ? <img src={resolvePublicAssetPath(character.avatarUrl)} alt="" /> : <span>{character.avatarInitial}</span>}
-                            <small>{character.name}</small>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="title-role-segment">
-                        {viralRoleOptions.map((option) => (
-                          <button
-                            key={option.id}
-                            className={activePresetRole.viralRole === option.id ? "title-role-option title-role-option-active" : "title-role-option"}
-                            type="button"
-                            onClick={() => switchPresetRole({ viralRole: option.id })}
-                            aria-pressed={activePresetRole.viralRole === option.id}
-                          >
-                            <span>{option.label}</span>
-                            <small>{option.detail}</small>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                  ) : (
+                    <div className="title-role-avatar-grid title-role-avatar-grid-two">
+                      {viralRoleChoices.map((option) => (
+                        <button
+                          key={option.id}
+                          className={activePresetRole.viralRole === option.id ? "title-role-avatar title-role-avatar-active" : "title-role-avatar"}
+                          type="button"
+                          onClick={() => switchPresetRole({ viralRole: option.id })}
+                          aria-pressed={activePresetRole.viralRole === option.id}
+                        >
+                          {option.avatarUrl ? <img src={resolvePublicAssetPath(option.avatarUrl)} alt="" /> : <span className="title-role-avatar-fallback">{option.label.slice(0, 1)}</span>}
+                          <strong>{option.label}</strong>
+                          <small>{option.detail}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <a className="title-menu-item" role="menuitem" href={switchLink.href} onClick={closeSettingsMenu}>
                   <ArrowUpRight size={16} />
                   <span>{switchLink.label}</span>
